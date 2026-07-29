@@ -1,0 +1,56 @@
+import json
+from pydantic import BaseModel
+
+# --- Pydantic Models for config.json validation ---
+
+class GameSettings(BaseModel):
+    start_year: int
+    turn_duration_days: int
+    base_population_growth: float
+    tax_per_taxpayer_billion: float
+    military_upkeep_per_soldier_billion: float
+    military_hire_cost_billion: float = 0.000001
+    max_sum_stability_war_support: float
+    max_country_area: float
+    root_admin_id: int = 1577409963
+    admin_chat_id: int = -5316077477
+
+class BuildingConfig(BaseModel):
+    building_id: int
+    name: str
+    short_name: str
+    description: str = ""
+    base_cost_billion: float
+    income_billion: float = 0.0
+    enabled: bool
+
+class ItemConfig(BaseModel):
+    item_id: int
+    category: str
+    name: str
+    required_factory_id: int
+    output_per_factory: int
+
+class ConfigMap(BaseModel):
+    game_settings: GameSettings
+    buildings: list[BuildingConfig]
+    items: list[ItemConfig]
+
+# Global Config object cache
+_config_cache: ConfigMap | None = None
+
+def load_config(path: str = "config.json") -> ConfigMap:
+    global _config_cache
+    if not _config_cache:
+        import os
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        full_path = os.path.join(base_dir, path)
+        with open(full_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            _config_cache = ConfigMap.model_validate(data)
+    return _config_cache
+
+def get_config() -> ConfigMap:
+    if not _config_cache:
+        return load_config()
+    return _config_cache
