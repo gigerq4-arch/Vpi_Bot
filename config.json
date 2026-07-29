@@ -70,11 +70,137 @@
       "output_per_factory": 10000
     },
     {
-      "item_id": 8,
+      "item_id": 2,
+      "category": "Огнестрел",
+      "name": "Пистолеты-пулеметы",
+      "required_factory_id": 1,
+      "output_per_factory": 5000
+    },
+    {
+      "item_id": 3,
+      "category": "Огнестрел",
+      "name": "Пулеметы",
+      "required_factory_id": 1,
+      "output_per_factory": 1500
+    },
+    {
+      "item_id": 4,
+      "category": "Артиллерия",
+      "name": "Полевая артиллерия",
+      "required_factory_id": 1,
+      "output_per_factory": 500
+    },
+    {
+      "item_id": 5,
       "category": "Артиллерия",
       "name": "Противотанковые пушки",
       "required_factory_id": 1,
       "output_per_factory": 350
+    },
+    {
+      "item_id": 6,
+      "category": "Артиллерия",
+      "name": "Зенитная артиллерия",
+      "required_factory_id": 1,
+      "output_per_factory": 300
+    },
+    {
+      "item_id": 7,
+      "category": "Бронетехника",
+      "name": "Бронетранспортеры",
+      "required_factory_id": 1,
+      "output_per_factory": 250
+    },
+    {
+      "item_id": 8,
+      "category": "Бронетехника",
+      "name": "Легкие танки",
+      "required_factory_id": 1,
+      "output_per_factory": 150
+    },
+    {
+      "item_id": 9,
+      "category": "Бронетехника",
+      "name": "Средние танки",
+      "required_factory_id": 1,
+      "output_per_factory": 80
+    },
+    {
+      "item_id": 10,
+      "category": "Бронетехника",
+      "name": "Тяжелые танки",
+      "required_factory_id": 1,
+      "output_per_factory": 30
+    },
+    {
+      "item_id": 11,
+      "category": "Авиация",
+      "name": "Истребители",
+      "required_factory_id": 2,
+      "output_per_factory": 50
+    },
+    {
+      "item_id": 12,
+      "category": "Авиация",
+      "name": "Штурмовики",
+      "required_factory_id": 2,
+      "output_per_factory": 35
+    },
+    {
+      "item_id": 13,
+      "category": "Авиация",
+      "name": "Тактические бомбардировщики",
+      "required_factory_id": 2,
+      "output_per_factory": 20
+    },
+    {
+      "item_id": 14,
+      "category": "Авиация",
+      "name": "Стратегические бомбардировщики",
+      "required_factory_id": 2,
+      "output_per_factory": 5
+    },
+    {
+      "item_id": 15,
+      "category": "Флот",
+      "name": "Подводные лодки",
+      "required_factory_id": 3,
+      "output_per_factory": 10
+    },
+    {
+      "item_id": 16,
+      "category": "Флот",
+      "name": "Эсминцы",
+      "required_factory_id": 3,
+      "output_per_factory": 5
+    },
+    {
+      "item_id": 17,
+      "category": "Флот",
+      "name": "Легкие крейсера",
+      "required_factory_id": 3,
+      "output_per_factory": 3
+    },
+    {
+      "item_id": 18,
+      "category": "Флот",
+      "name": "Тяжелые крейсера",
+      "required_factory_id": 3,
+      "output_per_factory": 2
+    },
+    {
+      "item_id": 19,
+      "category": "Флот",
+      "name": "Линкоры",
+      "required_factory_id": 3,
+      "output_per_factory": 2
+    },
+    {
+      "item_id": 20,
+      "category": "Флот",
+      "name": "Авианосцы",
+      "required_factory_id": 3,
+      "output_per_factory": 1
     }
   ]
 }
