@@ -155,6 +155,7 @@ async def cmd_help(message: Message):
         "• /production — Просмотр состояния ВПК и складов\n"
         "• /set_prod [ID техники] [ID завода] [Кол-во] — Назначить заводы\n"
         "• /unset_prod [ID техники] [Кол-во|all] — Снять заводы с производства\n"
+        "• /nuclear — Меню ядерной программы\n"
         "• /util [ID техники] [Кол-во] — Утилизация техники\n"
         "• /spy [ID цели] [Тип операции] — Шпионаж и диверсии\n"
         "• /trade — Торговля\n"
@@ -534,6 +535,8 @@ async def cmd_production(message: Message):
             i_cfg = next((i for i in cfg.items if i.item_id == cp.item_id), None)
             if i_cfg:
                 used_factories[i_cfg.required_factory_id] = used_factories.get(i_cfg.required_factory_id, 0) + cp.assigned_factories
+                if getattr(i_cfg, 'secondary_factory_id', None):
+                    used_factories[i_cfg.secondary_factory_id] = used_factories.get(i_cfg.secondary_factory_id, 0) + (cp.assigned_factories * getattr(i_cfg, 'secondary_factory_count', 0))
                 
         for b_cfg in cfg.buildings:
             if b_cfg.building_id in [4, 5]: # Исключаем агентуру и фабрики
@@ -566,7 +569,18 @@ async def cmd_production(message: Message):
                 b_cfg = next((b for b in cfg.buildings if b.building_id == item.required_factory_id), None)
                 b_short = b_cfg.short_name if b_cfg else ""
                 
-                response += f"{item.item_id}. {item.name}: {amount:,}шт / +{production:,}шт {factories}{b_short}\n"
+                # Find secondary building if exists
+                sec_short = ""
+                if getattr(item, 'secondary_factory_id', None):
+                    sec_cfg = next((b for b in cfg.buildings if b.building_id == item.secondary_factory_id), None)
+                    if sec_cfg:
+                        sec_count = factories * getattr(item, 'secondary_factory_count', 0)
+                        sec_short = f" + {sec_count}{sec_cfg.short_name}"
+                
+                amount_formatted = f"{amount:,.1f}".replace('.0', '') if isinstance(amount, float) else f"{amount:,}"
+                prod_formatted = f"{production:,.1f}".replace('.0', '') if isinstance(production, float) else f"{production:,}"
+                
+                response += f"{item.item_id}. {item.name}: {amount_formatted}шт / +{prod_formatted}шт ({factories}{b_short}{sec_short})\n"
             response += "\n"
                 
         response += "\n💡 *Как управлять производством:*\n"
@@ -796,6 +810,14 @@ async def cmd_build(message: Message):
         return
         
     async with async_session() as session:
+        from database import GameState
+        state = await session.scalar(select(GameState))
+        turn_number = state.turn_number if state else 1
+
+        if b_id == 6 and turn_number <= 5:
+            await message.answer("❌ Вы не можете строить Ядерные лаборатории в первые 5 ходов вайпа.")
+            return
+
         country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
         if not country:
             await message.answer("У вас нет страны!")
@@ -891,6 +913,18 @@ async def cmd_set_prod(message: Message):
         country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
         if not country: return
         
+        if i_id == 21: # Ядерная бомба
+            completed = all([
+                country.nuclear_phase_1 >= 100,
+                country.nuclear_phase_2 >= 100,
+                country.nuclear_phase_3 >= 100,
+                country.nuclear_phase_4 >= 100,
+                country.nuclear_phase_5 >= 100
+            ])
+            if not completed:
+                await message.answer("❌ Ошибка: Для производства ядерного оружия необходимо завершить все этапы ядерной программы!")
+                return
+        
         from database import CountryBuilding, CountryProduction
         cb = await session.scalar(select(CountryBuilding).where(
             CountryBuilding.country_id == country.id,
@@ -901,17 +935,39 @@ async def cmd_set_prod(message: Message):
         
         # Считаем, сколько таких заводов уже занято
         all_prods = await session.scalars(select(CountryProduction).where(CountryProduction.country_id == country.id))
-        used_b = 0
-        for cp in all_prods:
-            c_item = next((i for i in cfg.items if i.item_id == cp.item_id), None)
-            if c_item and c_item.required_factory_id == b_id:
-                used_b += cp.assigned_factories
-                
+        all_prods_list = list(all_prods)
+
+        def get_used_b(target_b_id):
+            used = 0
+            for cp in all_prods_list:
+                c_item = next((i for i in cfg.items if i.item_id == cp.item_id), None)
+                if c_item:
+                    if c_item.required_factory_id == target_b_id:
+                        used += cp.assigned_factories
+                    if getattr(c_item, 'secondary_factory_id', None) == target_b_id:
+                        used += cp.assigned_factories * getattr(c_item, 'secondary_factory_count', 0)
+            return used
+
+        used_b = get_used_b(b_id)
         free_b = total_b - used_b
         if free_b < count:
             await message.answer(f"❌ Ошибка: Недостаточно свободных заводов (доступно: {free_b}).")
             return
             
+        if getattr(item, 'secondary_factory_id', None):
+            sec_b_id = item.secondary_factory_id
+            req_sec_count = count * item.secondary_factory_count
+            cb_sec = await session.scalar(select(CountryBuilding).where(
+                CountryBuilding.country_id == country.id,
+                CountryBuilding.building_id == sec_b_id
+            ))
+            total_sec_b = cb_sec.total_count if cb_sec else 0
+            used_sec_b = get_used_b(sec_b_id)
+            free_sec_b = total_sec_b - used_sec_b
+            if free_sec_b < req_sec_count:
+                await message.answer(f"❌ Ошибка: Недостаточно вспомогательных заводов (ID {sec_b_id}). Требуется: {req_sec_count}, доступно: {free_sec_b}.")
+                return
+
         cp = await session.scalar(select(CountryProduction).where(
             CountryProduction.country_id == country.id,
             CountryProduction.item_id == i_id
@@ -1041,6 +1097,18 @@ async def cmd_next_turn(message: Message, bot: Bot):
             
             country.treasury += tax_income
             country.treasury -= upkeep
+            
+            # Ядерная программа
+            if country.lab_assigned_phase_1 > 0 and country.nuclear_phase_1 < 100:
+                country.nuclear_phase_1 = min(100.0, country.nuclear_phase_1 + country.lab_assigned_phase_1 * 10.0)
+            if country.lab_assigned_phase_2 > 0 and country.nuclear_phase_2 < 100:
+                country.nuclear_phase_2 = min(100.0, country.nuclear_phase_2 + country.lab_assigned_phase_2 * 10.0)
+            if country.lab_assigned_phase_3 > 0 and country.nuclear_phase_3 < 100:
+                country.nuclear_phase_3 = min(100.0, country.nuclear_phase_3 + country.lab_assigned_phase_3 * 10.0)
+            if country.lab_assigned_phase_4 > 0 and country.nuclear_phase_4 < 100:
+                country.nuclear_phase_4 = min(100.0, country.nuclear_phase_4 + country.lab_assigned_phase_4 * 10.0)
+            if country.lab_assigned_phase_5 > 0 and country.nuclear_phase_5 < 100:
+                country.nuclear_phase_5 = min(100.0, country.nuclear_phase_5 + country.lab_assigned_phase_5 * 10.0)
             
             # 6. Производство
             from database import CountryProduction, CountryStockpile

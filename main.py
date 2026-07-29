@@ -44,9 +44,11 @@ async def main():
     # Register routers
     from handlers import router
     from trade import router as trade_router
+    from nuclear_cmds import router as nuclear_router
     
     dp.include_router(router)
     dp.include_router(trade_router)
+    dp.include_router(nuclear_router)
 
     logging.info("Starting bot polling...")
     await dp.start_polling(bot)

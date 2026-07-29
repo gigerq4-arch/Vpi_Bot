@@ -55,6 +55,19 @@ class Country(Base):
     productions: Mapped[list["CountryProduction"]] = relationship("CountryProduction", back_populates="country")
     stockpiles: Mapped[list["CountryStockpile"]] = relationship("CountryStockpile", back_populates="country")
 
+    # Ядерная программа
+    nuclear_phase_1 = Column(Float, default=0.0)
+    nuclear_phase_2 = Column(Float, default=0.0)
+    nuclear_phase_3 = Column(Float, default=0.0)
+    nuclear_phase_4 = Column(Float, default=0.0)
+    nuclear_phase_5 = Column(Float, default=0.0)
+
+    lab_assigned_phase_1 = Column(Integer, default=0)
+    lab_assigned_phase_2 = Column(Integer, default=0)
+    lab_assigned_phase_3 = Column(Integer, default=0)
+    lab_assigned_phase_4 = Column(Integer, default=0)
+    lab_assigned_phase_5 = Column(Integer, default=0)
+
 class CountryBuilding(Base):
     __tablename__ = 'country_buildings'
 
@@ -81,7 +94,7 @@ class CountryStockpile(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     country_id: Mapped[int] = mapped_column(Integer, ForeignKey('countries.id'))
     item_id: Mapped[int] = mapped_column(Integer)
-    amount: Mapped[int] = mapped_column(BigInteger, default=0)
+    amount: Mapped[float] = mapped_column(Float, default=0.0)
 
     country: Mapped["Country"] = relationship("Country", back_populates="stockpiles")
 
@@ -115,6 +128,21 @@ async def init_db():
     async with engine.begin() as conn:
         # Create all tables
         await conn.run_sync(Base.metadata.create_all)
+        
+        try:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE countries ADD COLUMN nuclear_phase_1 FLOAT DEFAULT 0.0;"))
+            await conn.execute(text("ALTER TABLE countries ADD COLUMN nuclear_phase_2 FLOAT DEFAULT 0.0;"))
+            await conn.execute(text("ALTER TABLE countries ADD COLUMN nuclear_phase_3 FLOAT DEFAULT 0.0;"))
+            await conn.execute(text("ALTER TABLE countries ADD COLUMN nuclear_phase_4 FLOAT DEFAULT 0.0;"))
+            await conn.execute(text("ALTER TABLE countries ADD COLUMN nuclear_phase_5 FLOAT DEFAULT 0.0;"))
+            await conn.execute(text("ALTER TABLE countries ADD COLUMN lab_assigned_phase_1 INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE countries ADD COLUMN lab_assigned_phase_2 INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE countries ADD COLUMN lab_assigned_phase_3 INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE countries ADD COLUMN lab_assigned_phase_4 INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE countries ADD COLUMN lab_assigned_phase_5 INTEGER DEFAULT 0;"))
+        except Exception:
+            pass
         
     async with async_session() as session:
         from sqlalchemy import select

@@ -29,7 +29,9 @@ class ItemConfig(BaseModel):
     category: str
     name: str
     required_factory_id: int
-    output_per_factory: int
+    output_per_factory: float
+    secondary_factory_id: int | None = None
+    secondary_factory_count: int = 0
 
 class ConfigMap(BaseModel):
     game_settings: GameSettings
