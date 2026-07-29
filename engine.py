@@ -42,17 +42,13 @@ class ConfigMap(BaseModel):
 _config_cache: ConfigMap | None = None
 
 def load_config(path: str = "config.json") -> ConfigMap:
-    global _config_cache
-    if not _config_cache:
-        import os
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        full_path = os.path.join(base_dir, path)
-        with open(full_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            _config_cache = ConfigMap.model_validate(data)
-    return _config_cache
+    import os
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    full_path = os.path.join(base_dir, path)
+    with open(full_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+        return ConfigMap.model_validate(data)
 
 def get_config() -> ConfigMap:
-    if not _config_cache:
-        return load_config()
-    return _config_cache
+    # Always reload config for now so changes take effect immediately
+    return load_config()

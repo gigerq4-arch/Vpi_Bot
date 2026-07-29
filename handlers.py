@@ -312,12 +312,18 @@ async def process_party(message: Message, state: FSMContext):
 
 @router.message(Registration.stats)
 async def process_stats(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Ошибка ввода. Ожидается текстовое сообщение с двумя числами.")
+        return
     try:
-        parts = message.text.split()
+        parts = message.text.replace(',', ' ').split()
         if len(parts) != 2:
             raise ValueError
         stab = float(parts[0])
         war = float(parts[1])
+        if stab < 0 or war < 0:
+            await message.answer("Ошибка: Значения не могут быть отрицательными.")
+            return
         if stab + war > 150.0:
             await message.answer("Ошибка: Сумма стабильности и поддержки войны не должна превышать 150. Попробуйте еще раз.")
             return
@@ -335,8 +341,11 @@ async def process_stats(message: Message, state: FSMContext):
 
 @router.message(Registration.area)
 async def process_area(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Ошибка ввода. Ожидается текстовое сообщение с числом.")
+        return
     try:
-        area = float(message.text)
+        area = float(message.text.replace(',', '.'))
         if area > 150000.0 or area <= 0:
             await message.answer("Ошибка: Площадь должна быть от 1 до 150000. Попробуйте еще раз.")
             return
@@ -1294,6 +1303,10 @@ async def cmd_guide(message: Message):
         "• Военные заводы производят технику и вооружение.\n"
         "• Для производства техники нужны заводы определенного типа (например, Военный завод для винтовок).\n"
         "• Команды: <code>/buildings</code>, <code>/build</code>, <code>/production</code>, <code>/set_prod</code>.\n\n"
+        "☢️ <b>Ядерная программа:</b>\n"
+        "• Постройте Ядерные лаборатории (доступно после 5-го хода).\n"
+        "• Назначайте лаборатории на этапы исследования командой <code>/lab_assign</code> (меню <code>/nuclear</code>).\n"
+        "• После завершения всех 5 этапов, вы сможете производить Ядерные бомбы на лабораториях.\n\n"
         "⚔️ <b>Военное положение:</b>\n"
         "Команда <code>/army</code> позволяет включить 🔴 <b>Военное положение</b>. \n"
         "<b>Плюсы:</b> Каждый ход часть гражданских автоматически мобилизуется в армию (зависит от Поддержки войны).\n"
