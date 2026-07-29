@@ -538,6 +538,7 @@ async def cmd_production(message: Message):
                 if getattr(i_cfg, 'secondary_factory_id', None):
                     used_factories[i_cfg.secondary_factory_id] = used_factories.get(i_cfg.secondary_factory_id, 0) + (cp.assigned_factories * getattr(i_cfg, 'secondary_factory_count', 0))
                 
+        used_factories[6] = used_factories.get(6, 0) + country_full.lab_assigned_phase_1 + country_full.lab_assigned_phase_2 + country_full.lab_assigned_phase_3 + country_full.lab_assigned_phase_4 + country_full.lab_assigned_phase_5
         for b_cfg in cfg.buildings:
             if b_cfg.building_id in [4, 5]: # Исключаем агентуру и фабрики
                 continue
@@ -946,6 +947,8 @@ async def cmd_set_prod(message: Message):
                         used += cp.assigned_factories
                     if getattr(c_item, 'secondary_factory_id', None) == target_b_id:
                         used += cp.assigned_factories * getattr(c_item, 'secondary_factory_count', 0)
+            if target_b_id == 6:
+                used += country.lab_assigned_phase_1 + country.lab_assigned_phase_2 + country.lab_assigned_phase_3 + country.lab_assigned_phase_4 + country.lab_assigned_phase_5
             return used
 
         used_b = get_used_b(b_id)
