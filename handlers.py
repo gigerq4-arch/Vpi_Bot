@@ -228,7 +228,6 @@ async def cmd_profile(message: Message):
             text += (
                 f"🏭 Фабрики: {total_factories} шт\n"
                 f"🏭 Доход с фабрик: {factory_income:.2f} B$\n"
-                f"🏢 Доход предприятий (чисто): 0.00 B$\n"
             )
             
         text += (

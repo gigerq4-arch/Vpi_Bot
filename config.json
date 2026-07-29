@@ -54,7 +54,7 @@
       "building_id": 5,
       "name": "Фабрика",
       "short_name": "фб",
-      "description": "Гражданское предприятие, приносит пассивный доход 0.3 B$ за ход.",
+      "description": "Гражданское здание, приносит пассивный доход 0.3 B$ за ход.",
       "base_cost_billion": 1.5,
       "income_billion": 0.3,
       "enabled": true
