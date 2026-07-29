@@ -56,17 +56,17 @@ class Country(Base):
     stockpiles: Mapped[list["CountryStockpile"]] = relationship("CountryStockpile", back_populates="country")
 
     # Ядерная программа
-    nuclear_phase_1 = Column(Float, default=0.0)
-    nuclear_phase_2 = Column(Float, default=0.0)
-    nuclear_phase_3 = Column(Float, default=0.0)
-    nuclear_phase_4 = Column(Float, default=0.0)
-    nuclear_phase_5 = Column(Float, default=0.0)
+    nuclear_phase_1: Mapped[float] = mapped_column(Float, default=0.0)
+    nuclear_phase_2: Mapped[float] = mapped_column(Float, default=0.0)
+    nuclear_phase_3: Mapped[float] = mapped_column(Float, default=0.0)
+    nuclear_phase_4: Mapped[float] = mapped_column(Float, default=0.0)
+    nuclear_phase_5: Mapped[float] = mapped_column(Float, default=0.0)
 
-    lab_assigned_phase_1 = Column(Integer, default=0)
-    lab_assigned_phase_2 = Column(Integer, default=0)
-    lab_assigned_phase_3 = Column(Integer, default=0)
-    lab_assigned_phase_4 = Column(Integer, default=0)
-    lab_assigned_phase_5 = Column(Integer, default=0)
+    lab_assigned_phase_1: Mapped[int] = mapped_column(Integer, default=0)
+    lab_assigned_phase_2: Mapped[int] = mapped_column(Integer, default=0)
+    lab_assigned_phase_3: Mapped[int] = mapped_column(Integer, default=0)
+    lab_assigned_phase_4: Mapped[int] = mapped_column(Integer, default=0)
+    lab_assigned_phase_5: Mapped[int] = mapped_column(Integer, default=0)
 
 class CountryBuilding(Base):
     __tablename__ = 'country_buildings'
