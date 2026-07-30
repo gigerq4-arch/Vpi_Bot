@@ -4,9 +4,9 @@
     "start_year": 1936,
     "turn_duration_days": 30,
     "base_population_growth": 0.005,
-    "tax_per_taxpayer_billion": 0.0000001,
-    "military_upkeep_per_soldier_billion": 0.00000015,
-    "military_hire_cost_billion": 0.00005,
+    "tax_per_taxpayer_billion": 1e-07,
+    "military_upkeep_per_soldier_billion": 1.5e-07,
+    "military_hire_cost_billion": 5e-05,
     "max_sum_stability_war_support": 150.0,
     "max_country_area": 150000.0,
     "root_admin_id": 1577409963,
@@ -57,6 +57,15 @@
       "description": "Гражданское здание, приносит пассивный доход 0.3 B$ за ход.",
       "base_cost_billion": 1.5,
       "income_billion": 0.3,
+      "enabled": true
+    },
+    {
+      "building_id": 6,
+      "name": "Ядерная лаборатория",
+      "short_name": "лаб",
+      "description": "Исследует и производит ядерное оружие.",
+      "base_cost_billion": 20.0,
+      "income_billion": 0.0,
       "enabled": true
     }
   ],
@@ -201,6 +210,15 @@
       "name": "Авианосцы",
       "required_factory_id": 3,
       "output_per_factory": 1
+    },
+    {
+      "item_id": 21,
+      "category": "Оружие массового поражения",
+      "name": "Ядерная бомба",
+      "required_factory_id": 6,
+      "output_per_factory": 0.1,
+      "secondary_factory_id": 1,
+      "secondary_factory_count": 5
     }
   ]
 }
