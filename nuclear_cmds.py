@@ -3,11 +3,18 @@ from aiogram.types import Message
 from aiogram.filters import Command
 from database import async_session, Country, CountryBuilding, CountryProduction
 from sqlalchemy import select
+from engine import get_config
 
 router = Router()
 
 @router.message(Command("nuclear"))
 async def cmd_nuclear(message: Message):
+    cfg = get_config()
+    lab_building = next((b for b in cfg.buildings if b.building_id == 6), None)
+    if not lab_building or not lab_building.enabled:
+        await message.answer("❌ Ядерная программа в данный момент отключена.")
+        return
+
     async with async_session() as session:
         country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
         if not country:
@@ -63,6 +70,12 @@ async def cmd_nuclear(message: Message):
 
 @router.message(Command("lab_assign"))
 async def cmd_lab_assign(message: Message):
+    cfg = get_config()
+    lab_building = next((b for b in cfg.buildings if b.building_id == 6), None)
+    if not lab_building or not lab_building.enabled:
+        await message.answer("❌ Ядерная программа в данный момент отключена.")
+        return
+
     args = message.text.split()
     if len(args) != 3:
         await message.answer("⚠️ Использование: `/lab_assign [этап 1-5] [кол-во]`", parse_mode="Markdown")
@@ -108,6 +121,12 @@ async def cmd_lab_assign(message: Message):
 
 @router.message(Command("lab_remove"))
 async def cmd_lab_remove(message: Message):
+    cfg = get_config()
+    lab_building = next((b for b in cfg.buildings if b.building_id == 6), None)
+    if not lab_building or not lab_building.enabled:
+        await message.answer("❌ Ядерная программа в данный момент отключена.")
+        return
+
     args = message.text.split()
     if len(args) != 3:
         await message.answer("⚠️ Использование: `/lab_remove [этап 1-5] [кол-во]`", parse_mode="Markdown")

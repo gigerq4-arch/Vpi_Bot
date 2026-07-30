@@ -52,3 +52,13 @@ def load_config(path: str = "config.json") -> ConfigMap:
 def get_config() -> ConfigMap:
     # Always reload config for now so changes take effect immediately
     return load_config()
+
+def save_config(config: ConfigMap, path: str = "config.json"):
+    import os
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    full_path = os.path.join(base_dir, path)
+    with open(full_path, "w", encoding="utf-8") as f:
+        # Dump model, exclude unset or defaults if needed, but here we can just dump dict
+        # wait, we have "_comment_game_settings" in original json which pydantic drops.
+        # It's better to just read JSON as dict, modify it, and write it back.
+        pass

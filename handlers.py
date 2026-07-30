@@ -817,8 +817,8 @@ async def cmd_build(message: Message):
     cfg = get_config()
     building = next((b for b in cfg.buildings if b.building_id == b_id), None)
     
-    if not building:
-        await message.answer(f"Ошибка: Здание с ID {b_id} не найдено в конфигурации.")
+    if not building or not building.enabled:
+        await message.answer(f"Ошибка: Здание с ID {b_id} не найдено или отключено.")
         return
         
     async with async_session() as session:
@@ -917,6 +917,11 @@ async def cmd_set_prod(message: Message):
         await message.answer(f"❌ Ошибка: Техника с ID {i_id} не найдена.")
         return
         
+    building = next((b for b in cfg.buildings if b.building_id == b_id), None)
+    if not building or not building.enabled:
+        await message.answer(f"❌ Ошибка: Здание с ID {b_id} не найдено или отключено.")
+        return
+
     if item.required_factory_id != b_id:
         await message.answer(f"❌ Ошибка: Для этой техники требуется завод с ID {item.required_factory_id}.")
         return
@@ -1044,6 +1049,37 @@ async def cmd_unset_prod(message: Message):
         await session.commit()
         await message.answer(f"✅ Снято {remove_count} заводов с линии ID {i_id}.")
 
+@router.message(Command("toggle_nuclear"))
+async def cmd_toggle_nuclear(message: Message):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("Ошибка: Эта команда доступна только Root-администратору.")
+            return
+
+    import json
+    import os
+    cfg_path = os.path.join(os.path.dirname(__file__), "config.json")
+    with open(cfg_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    new_state = None
+    for b in data.get("buildings", []):
+        if b.get("building_id") == 6:
+            b["enabled"] = not b["enabled"]
+            new_state = b["enabled"]
+            break
+
+    if new_state is None:
+        await message.answer("Ошибка: Здание 'Ядерная лаборатория' (ID 6) не найдено в конфиге.")
+        return
+
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+    status = "ВКЛЮЧЕНА" if new_state else "ОТКЛЮЧЕНА"
+    await message.answer(f"✅ Ядерная программа (и строительство лабораторий) успешно **{status}**.", parse_mode="Markdown")
+
 @router.message(Command("next_turn"))
 async def cmd_next_turn(message: Message, bot: Bot):
     from database import GameState
@@ -1113,16 +1149,18 @@ async def cmd_next_turn(message: Message, bot: Bot):
             country.treasury -= upkeep
             
             # Ядерная программа
-            if country.lab_assigned_phase_1 > 0 and country.nuclear_phase_1 < 100:
-                country.nuclear_phase_1 = min(100.0, country.nuclear_phase_1 + country.lab_assigned_phase_1 * 10.0)
-            if country.lab_assigned_phase_2 > 0 and country.nuclear_phase_2 < 100:
-                country.nuclear_phase_2 = min(100.0, country.nuclear_phase_2 + country.lab_assigned_phase_2 * 10.0)
-            if country.lab_assigned_phase_3 > 0 and country.nuclear_phase_3 < 100:
-                country.nuclear_phase_3 = min(100.0, country.nuclear_phase_3 + country.lab_assigned_phase_3 * 10.0)
-            if country.lab_assigned_phase_4 > 0 and country.nuclear_phase_4 < 100:
-                country.nuclear_phase_4 = min(100.0, country.nuclear_phase_4 + country.lab_assigned_phase_4 * 10.0)
-            if country.lab_assigned_phase_5 > 0 and country.nuclear_phase_5 < 100:
-                country.nuclear_phase_5 = min(100.0, country.nuclear_phase_5 + country.lab_assigned_phase_5 * 10.0)
+            lab_building = next((b for b in cfg.buildings if b.building_id == 6), None)
+            if lab_building and lab_building.enabled:
+                if country.lab_assigned_phase_1 > 0 and country.nuclear_phase_1 < 100:
+                    country.nuclear_phase_1 = min(100.0, country.nuclear_phase_1 + country.lab_assigned_phase_1 * 10.0)
+                if country.lab_assigned_phase_2 > 0 and country.nuclear_phase_2 < 100:
+                    country.nuclear_phase_2 = min(100.0, country.nuclear_phase_2 + country.lab_assigned_phase_2 * 10.0)
+                if country.lab_assigned_phase_3 > 0 and country.nuclear_phase_3 < 100:
+                    country.nuclear_phase_3 = min(100.0, country.nuclear_phase_3 + country.lab_assigned_phase_3 * 10.0)
+                if country.lab_assigned_phase_4 > 0 and country.nuclear_phase_4 < 100:
+                    country.nuclear_phase_4 = min(100.0, country.nuclear_phase_4 + country.lab_assigned_phase_4 * 10.0)
+                if country.lab_assigned_phase_5 > 0 and country.nuclear_phase_5 < 100:
+                    country.nuclear_phase_5 = min(100.0, country.nuclear_phase_5 + country.lab_assigned_phase_5 * 10.0)
             
             # 6. Производство
             from database import CountryProduction, CountryStockpile
