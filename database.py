@@ -67,6 +67,7 @@ class Country(Base):
     lab_assigned_phase_3: Mapped[int] = mapped_column(Integer, default=0)
     lab_assigned_phase_4: Mapped[int] = mapped_column(Integer, default=0)
     lab_assigned_phase_5: Mapped[int] = mapped_column(Integer, default=0)
+    last_expand_turn: Mapped[int] = mapped_column(Integer, default=-3)
 
 class CountryBuilding(Base):
     __tablename__ = 'country_buildings'
@@ -111,6 +112,18 @@ class TradeSession(Base):
     status: Mapped[TradeStatusEnum] = mapped_column(Enum(TradeStatusEnum), default=TradeStatusEnum.active)
 
 
+class ExpansionRequest(Base):
+    __tablename__ = 'expansion_requests'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_id: Mapped[int] = mapped_column(Integer, ForeignKey('countries.id'))
+    turn_number: Mapped[int] = mapped_column(Integer)
+    troops: Mapped[int] = mapped_column(Integer, default=0)
+    civilians: Mapped[int] = mapped_column(Integer, default=0)
+    equipment: Mapped[dict] = mapped_column(JSON, default=dict)
+    photo_file_id: Mapped[str] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="pending")
+    country: Mapped["Country"] = relationship("Country")
+
 class GameState(Base):
     __tablename__ = 'game_state'
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -141,6 +154,7 @@ async def init_db():
             await conn.execute(text("ALTER TABLE countries ADD COLUMN lab_assigned_phase_3 INTEGER DEFAULT 0;"))
             await conn.execute(text("ALTER TABLE countries ADD COLUMN lab_assigned_phase_4 INTEGER DEFAULT 0;"))
             await conn.execute(text("ALTER TABLE countries ADD COLUMN lab_assigned_phase_5 INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE countries ADD COLUMN last_expand_turn INTEGER DEFAULT -3;"))
         except Exception:
             pass
         
