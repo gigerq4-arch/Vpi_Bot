@@ -4,9 +4,9 @@
     "start_year": 1936,
     "turn_duration_days": 30,
     "base_population_growth": 0.005,
-    "tax_per_taxpayer_billion": 1e-07,
+    "tax_per_taxpayer_billion": 1.3e-07,
     "military_upkeep_per_soldier_billion": 1.5e-07,
-    "military_hire_cost_billion": 5e-05,
+    "military_hire_cost_billion": 6e-05,
     "max_sum_stability_war_support": 150.0,
     "max_country_area": 150000.0,
     "root_admin_id": 1577409963,
@@ -19,7 +19,7 @@
       "name": "Военный завод",
       "short_name": "вз",
       "description": "Производит военную технику и оружие.",
-      "base_cost_billion": 0.5,
+      "base_cost_billion": 1.25,
       "income_billion": 0.0,
       "enabled": true
     },
@@ -28,7 +28,7 @@
       "name": "Авиазавод",
       "short_name": "аз",
       "description": "Производит самолеты и авиацию.",
-      "base_cost_billion": 1.2,
+      "base_cost_billion": 2.4,
       "income_billion": 0.0,
       "enabled": true
     },
@@ -37,7 +37,7 @@
       "name": "Верфь",
       "short_name": "вф",
       "description": "Производит корабли и флот.",
-      "base_cost_billion": 2.0,
+      "base_cost_billion": 4.0,
       "income_billion": 0.0,
       "enabled": true
     },
@@ -46,7 +46,7 @@
       "name": "Агентура",
       "short_name": "аг",
       "description": "Генерирует 10 очков агентуры (ОА) для шпионажа.",
-      "base_cost_billion": 1.0,
+      "base_cost_billion": 2.0,
       "income_billion": 0.0,
       "enabled": true
     },

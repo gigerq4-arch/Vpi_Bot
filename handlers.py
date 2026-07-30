@@ -354,7 +354,8 @@ async def process_area(message: Message, state: FSMContext):
         await message.answer(
             "◆ <b>Регистрация: Шаг 7/8</b>\n"
             "------------------------------------\n"
-            "Отправьте картинку (фото) флага вашей страны."
+            "Отправьте картинку (фото) флага вашей страны.",
+            parse_mode="HTML"
         )
     except ValueError:
         await message.answer("Ошибка ввода. Ожидается число.")
@@ -367,7 +368,8 @@ async def process_flag(message: Message, state: FSMContext):
     await message.answer(
         "◆ <b>Регистрация: Шаг 8/8</b>\n"
         "------------------------------------\n"
-        "Отправьте картинку (фото) карты вашей страны."
+        "Отправьте картинку (фото) карты вашей страны.",
+        parse_mode="HTML"
     )
 
 @router.message(Registration.map, F.photo)
