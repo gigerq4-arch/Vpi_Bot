@@ -5,7 +5,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from sqlalchemy import select
 
-from database import async_session, User, Country, RoleEnum
+from database import async_session, User, Country, RoleEnum, ExpansionRequest, GameState, CountryStockpile
+import random
 from keyboards import get_start_keyboard, get_moderation_keyboard, get_army_keyboard
 from engine import get_config
 
@@ -1365,3 +1366,365 @@ async def cmd_guide(message: Message):
         "<i>Используйте <code>/help</code> для просмотра всех команд!</i>"
     )
     await message.answer(text, parse_mode="HTML")
+
+class ExpandFSM(StatesGroup):
+    waiting_for_troops = State()
+    waiting_for_civilians = State()
+    waiting_for_equipment = State()
+    waiting_for_photo = State()
+
+GOOD_EVENTS = [
+    "На новых территориях найдены залежи золота. В казну поступают дополнительные средства! (+2 B$)",
+    "Найдено крупное месторождение нефти. Экономика процветает! (+2.5 B$)",
+    "Вы наткнулись на дружелюбное племя аборигенов, которое решило присоединиться к вашей империи. (+50 000 населения)",
+    "Обнаружена плодородная долина, привлекающая поселенцев со всего мира. (+100 000 населения)",
+    "Найден старый заброшенный военный склад с припасами. Казна пополнена! (+1 B$)",
+    "Местное население с радостью принимает вашу власть, стабильность в обществе растет! (+5% стабильности)",
+    "Экспедиция обнаружила залежи урана. Выручка от продажи составила +3 B$.",
+    "Присоединились кочевники, искавшие убежище. (+30 000 населения, +5 000 армии)",
+    "Обнаружена сеть пещер с драгоценными камнями! (+2 B$)",
+    "Встречены переселенцы из другой страны, решившие остаться с вами. (+80 000 населения)",
+    "Обнаружен древний город, ставший туристической достопримечательностью. (+1.5 B$)",
+    "Найден упавший транспортный самолет с уцелевшим грузом припасов. (+1 B$)",
+    "Местные фермеры согласны платить налоги, пополняя вашу казну. (+1.2 B$)",
+    "Обнаружены богатые рыбные угодья. Экономика растет. (+1.8 B$)",
+    "Вы нашли заброшенную колонну военной техники. (+2 B$ - выручка от переработки)",
+    "Племя аборигенов подарило вам много золота в знак дружбы. (+1.5 B$)",
+    "Обнаружены редкие растения с уникальными свойствами, медицина приносит доход. (+1 B$)",
+    "Вы нашли скрытую долину, идеальную для сельского хозяйства. (+2 B$)",
+    "Местные охотники присоединились к вашей армии! (+10 000 армии)",
+    "Раскопаны древние сокровища. (+3 B$)",
+    "Местное население, спасаясь от голода из соседнего региона, переходит под ваше крыло. (+60 000 населения)",
+    "Ваш отряд нашел спрятанный тайник с золотыми слитками. (+2 B$)",
+    "Местные ученые-отшельники поделились с вами своими открытиями. Вы продали технологии за +2 B$.",
+    "При расширении обнаружены залежи редкоземельных металлов. (+2.5 B$)",
+    "Племя горцев согласилось стать частью вашей страны. (+40 000 населения, +10 000 армии)"
+]
+
+BAD_EVENTS = [
+    "Отряд столкнулся с агрессивными аборигенами. Вы понесли потери. (-10 000 армии)",
+    "В новых землях вспыхнула неизвестная болезнь, перекинувшаяся на страну. (-50 000 населения)",
+    "Техника увязла в болотах и была брошена, а часть денег утеряна. (-1 B$)",
+    "Войска попали в сильную песчаную бурю/метель, много погибших. (-15 000 армии)",
+    "Местные племена совершили партизанские вылазки на ваш лагерь. (-10 000 армии)",
+    "Обнаружены опасные хищники, нанесшие урон поселенцам. (-20 000 населения)",
+    "Экспедиция заблудилась и исчерпала все запасы. Пришлось тратить казну на спасение. (-1.5 B$)",
+    "Мощное землетрясение в регионе унесло жизни многих колонистов. (-40 000 населения)",
+    "Местные жители оказались переносчиками чумы. (-60 000 населения)",
+    "Войска попали в засаду неизвестных наемников. (-20 000 армии)",
+    "Выброс ядовитых газов из земли погубил часть экспедиции. (-30 000 населения)",
+    "При попытке переправы через реку затонула часть припасов и людей. (-1 B$, -5 000 армии)",
+    "Лагерь экспедиции сгорел из-за лесного пожара. (-1 B$)",
+    "Местное население подняло мятеж против ваших войск! (-10 000 населения, -5 000 армии)",
+    "Экспедиция наткнулась на старое минное поле. (-12 000 армии)",
+    "Суровая зима погубила много неподготовленных колонистов. (-50 000 населения)",
+    "Укус редкого насекомого вызвал эпидемию в лагере. (-30 000 населения)",
+    "Транспорт провалился под лед или в карстовую воронку. (-1.5 B$)",
+    "Часть войск дезертировала, прихватив с собой часть казны. (-1 B$, -10 000 армии)",
+    "Наводнение смыло временный лагерь и припасы. (-2 B$)",
+    "Отряд отравился неизвестными ядовитыми плодами. (-8 000 армии)",
+    "Столкновение с дикими племенами каннибалов. (-20 000 населения, -5 000 армии)",
+    "Местные бандиты ограбили обоз экспедиции. (-1.5 B$)",
+    "Неизвестный вирус поразил сельскохозяйственные культуры колонистов, вызвав голод. (-40 000 населения)",
+    "Лавины или камнепады уничтожили часть отряда в горах. (-15 000 армии)"
+]
+
+def apply_event_effect(country: Country, event_text: str):
+    if "+2 B$" in event_text: country.treasury += 2.0
+    if "+2.5 B$" in event_text: country.treasury += 2.5
+    if "+50 000 населения" in event_text: country.taxpayers += 50000
+    if "+100 000 населения" in event_text: country.taxpayers += 100000
+    if "+1 B$" in event_text: country.treasury += 1.0
+    if "+5% стабильности" in event_text: country.stability = min(100.0, country.stability + 5.0)
+    if "+3 B$" in event_text: country.treasury += 3.0
+    if "+30 000 населения" in event_text: country.taxpayers += 30000
+    if "+5 000 армии" in event_text: country.military += 5000
+    if "+80 000 населения" in event_text: country.taxpayers += 80000
+    if "+1.5 B$" in event_text: country.treasury += 1.5
+    if "+1.2 B$" in event_text: country.treasury += 1.2
+    if "+1.8 B$" in event_text: country.treasury += 1.8
+    if "+10 000 армии" in event_text: country.military += 10000
+    if "+60 000 населения" in event_text: country.taxpayers += 60000
+    if "+40 000 населения" in event_text: country.taxpayers += 40000
+    
+    if "-10 000 армии" in event_text: country.military = max(0, country.military - 10000)
+    if "-50 000 населения" in event_text: country.taxpayers = max(0, country.taxpayers - 50000)
+    if "-1 B$" in event_text: country.treasury = max(0, country.treasury - 1.0)
+    if "-15 000 армии" in event_text: country.military = max(0, country.military - 15000)
+    if "-20 000 населения" in event_text: country.taxpayers = max(0, country.taxpayers - 20000)
+    if "-1.5 B$" in event_text: country.treasury = max(0, country.treasury - 1.5)
+    if "-40 000 населения" in event_text: country.taxpayers = max(0, country.taxpayers - 40000)
+    if "-60 000 населения" in event_text: country.taxpayers = max(0, country.taxpayers - 60000)
+    if "-20 000 армии" in event_text: country.military = max(0, country.military - 20000)
+    if "-30 000 населения" in event_text: country.taxpayers = max(0, country.taxpayers - 30000)
+    if "-5 000 армии" in event_text: country.military = max(0, country.military - 5000)
+    if "-10 000 населения" in event_text: country.taxpayers = max(0, country.taxpayers - 10000)
+    if "-12 000 армии" in event_text: country.military = max(0, country.military - 12000)
+    if "-2 B$" in event_text: country.treasury = max(0, country.treasury - 2.0)
+    if "-8 000 армии" in event_text: country.military = max(0, country.military - 8000)
+
+
+@router.message(Command("expand"))
+async def cmd_expand_start(message: Message, state: FSMContext):
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country:
+            await message.answer("❌ У вас нет страны!")
+            return
+            
+        game_state = await session.scalar(select(GameState))
+        turn = game_state.turn_number if game_state else 1
+        
+        if turn - country.last_expand_turn < 3:
+            await message.answer(f"⏳ Вы недавно уже проводили расширение. Следующее доступно только через {3 - (turn - country.last_expand_turn)} ход(ов).")
+            return
+            
+        # Start FSM
+        await state.update_data(country_id=country.id, turn_number=turn, max_troops=country.military)
+        await message.answer(f"🗺 <b>Планирование расширения</b>\nСколько солдат вы хотите отправить в экспедицию?\n(Доступно: {country.military})", parse_mode="HTML")
+        await state.set_state(ExpandFSM.waiting_for_troops)
+
+@router.message(ExpandFSM.waiting_for_troops)
+async def expand_troops(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("Введите число.")
+        return
+    troops = int(message.text)
+    data = await state.get_data()
+    if troops < 0 or troops > data['max_troops']:
+        await message.answer(f"Некорректное количество (максимум {data['max_troops']}).")
+        return
+        
+    await state.update_data(troops=troops)
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.id == data['country_id']))
+        await state.update_data(max_civilians=country.taxpayers)
+        await message.answer(f"Отлично. Сколько местных жителей (колонистов) вы хотите отправить?\n(Доступно: {country.taxpayers})")
+    await state.set_state(ExpandFSM.waiting_for_civilians)
+
+@router.message(ExpandFSM.waiting_for_civilians)
+async def expand_civilians(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("Введите число.")
+        return
+    civilians = int(message.text)
+    data = await state.get_data()
+    if civilians < 0 or civilians > data['max_civilians']:
+        await message.answer(f"Некорректное количество (максимум {data['max_civilians']}).")
+        return
+        
+    await state.update_data(civilians=civilians, equipment={})
+    
+    cfg = get_config()
+    text = "Хотите ли вы отправить технику в экспедицию?\nВведите ID техники и количество через пробел (например: <code>1 500</code>) или напишите <b>Готово</b>, чтобы продолжить."
+    await message.answer(text, parse_mode="HTML")
+    await state.set_state(ExpandFSM.waiting_for_equipment)
+
+@router.message(ExpandFSM.waiting_for_equipment)
+async def expand_equipment(message: Message, state: FSMContext):
+    if message.text.lower() in ["готово", "done", "пропустить", "skip"]:
+        await message.answer("Прикрепите фото с выделенной территорией на карте, которую вы планируете захватить/освоить.")
+        await state.set_state(ExpandFSM.waiting_for_photo)
+        return
+        
+    args = message.text.split()
+    if len(args) != 2:
+        await message.answer("Неверный формат. Введите ID техники и количество (например: 1 500) или 'Готово'.")
+        return
+    
+    try:
+        item_id = int(args[0])
+        amount = int(args[1])
+        if amount <= 0: raise ValueError
+    except ValueError:
+        await message.answer("Ошибка: Аргументы должны быть положительными числами.")
+        return
+        
+    cfg = get_config()
+    item_cfg = next((i for i in cfg.items if i.item_id == item_id), None)
+    if not item_cfg:
+        await message.answer("Техника с таким ID не найдена.")
+        return
+        
+    data = await state.get_data()
+    async with async_session() as session:
+        stock = await session.scalar(select(CountryStockpile).where(
+            CountryStockpile.country_id == data['country_id'],
+            CountryStockpile.item_id == item_id
+        ))
+        avail = stock.amount if stock else 0
+        
+        current_eq = data.get('equipment', {})
+        current_amount = current_eq.get(str(item_id), 0)
+        
+        if amount + current_amount > avail:
+            await message.answer(f"Недостаточно техники {item_cfg.name} (доступно: {avail}).")
+            return
+            
+        current_eq[str(item_id)] = current_amount + amount
+        await state.update_data(equipment=current_eq)
+        await message.answer(f"✅ Добавлено {amount} x {item_cfg.name}. Введите еще или 'Готово'.")
+
+@router.message(ExpandFSM.waiting_for_photo, F.photo)
+async def expand_photo(message: Message, state: FSMContext, bot: Bot):
+    photo_file_id = message.photo[-1].file_id
+    data = await state.get_data()
+    
+    cfg = get_config()
+    admin_chat_id = cfg.game_settings.admin_chat_id
+    
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.id == data['country_id']))
+        
+        # Deduct resources
+        country.military -= data['troops']
+        country.taxpayers -= data['civilians']
+        
+        # Deduct equipment
+        for item_id_str, amount in data['equipment'].items():
+            item_id = int(item_id_str)
+            stock = await session.scalar(select(CountryStockpile).where(
+                CountryStockpile.country_id == data['country_id'],
+                CountryStockpile.item_id == item_id
+            ))
+            if stock:
+                stock.amount -= amount
+                
+        # Register request
+        req = ExpansionRequest(
+            country_id=country.id,
+            turn_number=data['turn_number'],
+            troops=data['troops'],
+            civilians=data['civilians'],
+            equipment=data['equipment'],
+            photo_file_id=photo_file_id
+        )
+        session.add(req)
+        await session.commit()
+        await session.refresh(req)
+        
+        eq_text = "\n".join([f"ID {k}: {v} шт." for k,v in data['equipment'].items()]) if data['equipment'] else "Нет"
+        
+        req_text = (
+            f"🗺 <b>Запрос на расширение #{req.id}</b>\n"
+            f"От страны: {country.name}\n"
+            f"Солдат: {data['troops']}\n"
+            f"Колонистов: {data['civilians']}\n"
+            f"Техника:\n{eq_text}\n\n"
+            f"Для модерации используйте:\n"
+            f"/exp_approve {req.id} [Текст результата]\n"
+            f"/exp_reject {req.id} [Причина]"
+        )
+        await bot.send_photo(admin_chat_id, photo_file_id, caption=req_text, parse_mode="HTML")
+        await message.answer("✅ Ваш запрос на расширение отправлен на проверку администратору. Войска и ресурсы временно списаны. В случае отклонения они вернутся.")
+        await state.clear()
+
+@router.message(Command("exp_approve"))
+async def cmd_exp_approve(message: Message, bot: Bot):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            return
+            
+        args = message.text.split(maxsplit=2)
+        if len(args) < 2:
+            await message.answer("Использование: /exp_approve [ID] [Опциональный текст для игрока]")
+            return
+            
+        req_id = int(args[1])
+        admin_text = args[2] if len(args) > 2 else "Расширение одобрено."
+        
+        req = await session.scalar(select(ExpansionRequest).where(ExpansionRequest.id == req_id))
+        if not req or req.status != "pending":
+            await message.answer("Запрос не найден или уже обработан.")
+            return
+            
+        country = await session.scalar(select(Country).where(Country.id == req.country_id))
+        
+        req.status = "approved"
+        country.last_expand_turn = req.turn_number
+        
+        # Event generator
+        event_chance = random.random()
+        event_text = ""
+        if event_chance > 0.15:
+            event_text = "Расширение прошло штатно, без особых происшествий."
+        else:
+            is_good = random.choice([True, False])
+            if is_good:
+                event_str = random.choice(GOOD_EVENTS)
+                event_text = f"🟢 <b>Счастливый случай!</b>\n{event_str}"
+                apply_event_effect(country, event_str)
+            else:
+                event_str = random.choice(BAD_EVENTS)
+                event_text = f"🔴 <b>Происшествие!</b>\n{event_str}"
+                apply_event_effect(country, event_str)
+                
+        # Send result to user
+        final_msg = (
+            f"🗺 <b>Результаты расширения</b>\n"
+            f"<b>Комментарий ГМ:</b> {admin_text}\n\n"
+            f"<b>События в экспедиции:</b>\n{event_text}"
+        )
+        try:
+            await bot.send_message(country.owner_id, final_msg, parse_mode="HTML")
+            await message.answer(f"✅ Запрос #{req_id} одобрен. Результат отправлен игроку.")
+        except Exception as e:
+            await message.answer(f"Запрос одобрен, но не удалось отправить сообщение игроку: {e}")
+            
+        await session.commit()
+
+@router.message(Command("exp_reject"))
+async def cmd_exp_reject(message: Message, bot: Bot):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            return
+            
+        args = message.text.split(maxsplit=2)
+        if len(args) < 2:
+            await message.answer("Использование: /exp_reject [ID] [Опционально причина]")
+            return
+            
+        req_id = int(args[1])
+        admin_text = args[2] if len(args) > 2 else "Отклонено ГМ."
+        
+        req = await session.scalar(select(ExpansionRequest).where(ExpansionRequest.id == req_id))
+        if not req or req.status != "pending":
+            await message.answer("Запрос не найден или уже обработан.")
+            return
+            
+        country = await session.scalar(select(Country).where(Country.id == req.country_id))
+        
+        req.status = "rejected"
+        
+        # Refund resources
+        country.military += req.troops
+        country.taxpayers += req.civilians
+        
+        # Refund equipment
+        for item_id_str, amount in req.equipment.items():
+            item_id = int(item_id_str)
+            stock = await session.scalar(select(CountryStockpile).where(
+                CountryStockpile.country_id == country.id,
+                CountryStockpile.item_id == item_id
+            ))
+            if stock:
+                stock.amount += amount
+            else:
+                new_stock = CountryStockpile(country_id=country.id, item_id=item_id, amount=amount)
+                session.add(new_stock)
+                
+        # Send result to user
+        final_msg = (
+            f"❌ <b>Отказ в расширении</b>\n"
+            f"<b>Причина:</b> {admin_text}\n\n"
+            f"Ваши войска и ресурсы возвращены в страну."
+        )
+        try:
+            await bot.send_message(country.owner_id, final_msg, parse_mode="HTML")
+            await message.answer(f"✅ Запрос #{req_id} отклонен. Ресурсы возвращены. Результат отправлен игроку.")
+        except Exception as e:
+            await message.answer(f"Запрос отклонен, но не удалось отправить сообщение игроку: {e}")
+            
+        await session.commit()
