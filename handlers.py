@@ -401,7 +401,7 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
             ruler=data['ruler'], party=data['party'], stability=data['stability'],
             war_support=data['war_support'], area=data['area'],
             flag_photo_id=data['flag'], map_photo_id=photo_id,
-            treasury=10.0, taxpayers=1000000, military=1000, martial_law=False,
+            treasury=10.0, taxpayers=5000000, military=1000, martial_law=False,
             built_this_turn=0, inflation=0.0, intel_points=0.0, counter_intel_points=0.0
         )
         async with async_session() as session:
@@ -415,7 +415,7 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
             ruler=data['ruler'], party=data['party'], stability=data['stability'],
             war_support=data['war_support'], area=data['area'],
             flag_photo_id=data['flag'], map_photo_id=photo_id,
-            treasury=10.0, taxpayers=1000000, military=1000, martial_law=False,
+            treasury=10.0, taxpayers=5000000, military=1000, martial_law=False,
             built_this_turn=0, inflation=0.0, intel_points=0.0, counter_intel_points=0.0
         )
         async with async_session() as session:

@@ -4,7 +4,7 @@
     "start_year": 1936,
     "turn_duration_days": 30,
     "base_population_growth": 0.005,
-    "tax_per_taxpayer_billion": 1.3e-07,
+    "tax_per_taxpayer_billion": 1.56e-07,
     "military_upkeep_per_soldier_billion": 1.5e-07,
     "military_hire_cost_billion": 6e-05,
     "max_sum_stability_war_support": 150.0,
