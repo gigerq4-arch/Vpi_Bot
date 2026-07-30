@@ -1625,12 +1625,13 @@ async def cmd_exp_approve(message: Message, bot: Bot):
         user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
         if not user or user.role != RoleEnum.root:
             return
-            
-        args = message.text.split(maxsplit=2)
+        
+        text = message.text or message.caption or ""
+        args = text.split(maxsplit=2)
         if len(args) < 2:
-            await message.answer("Использование: /exp_approve [ID] [Опциональный текст для игрока]")
+            await message.answer("Использование: /exp_approve [ID] [Опциональный текст для игрока]. Прикрепите фото, если войск не хватило на всю территорию.")
             return
-            
+        
         req_id = int(args[1])
         admin_text = args[2] if len(args) > 2 else "Расширение одобрено."
         
@@ -1638,7 +1639,7 @@ async def cmd_exp_approve(message: Message, bot: Bot):
         if not req or req.status != "pending":
             await message.answer("Запрос не найден или уже обработан.")
             return
-            
+        
         country = await session.scalar(select(Country).where(Country.id == req.country_id))
         
         req.status = "approved"
@@ -1666,8 +1667,14 @@ async def cmd_exp_approve(message: Message, bot: Bot):
             f"<b>Комментарий ГМ:</b> {admin_text}\n\n"
             f"<b>События в экспедиции:</b>\n{event_text}"
         )
+        
+        photo_file_id = message.photo[-1].file_id if message.photo else None
+        
         try:
-            await bot.send_message(country.owner_id, final_msg, parse_mode="HTML")
+            if photo_file_id:
+                await bot.send_photo(country.owner_id, photo_file_id, caption=final_msg, parse_mode="HTML")
+            else:
+                await bot.send_message(country.owner_id, final_msg, parse_mode="HTML")
             await message.answer(f"✅ Запрос #{req_id} одобрен. Результат отправлен игроку.")
         except Exception as e:
             await message.answer(f"Запрос одобрен, но не удалось отправить сообщение игроку: {e}")
