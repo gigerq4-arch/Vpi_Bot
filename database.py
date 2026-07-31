@@ -157,22 +157,28 @@ async def init_db():
         # Create all tables
         await conn.run_sync(Base.metadata.create_all)
         
+    alter_statements = [
+        "ALTER TABLE countries ADD COLUMN nuclear_phase_1 FLOAT DEFAULT 0.0;",
+        "ALTER TABLE countries ADD COLUMN nuclear_phase_2 FLOAT DEFAULT 0.0;",
+        "ALTER TABLE countries ADD COLUMN nuclear_phase_3 FLOAT DEFAULT 0.0;",
+        "ALTER TABLE countries ADD COLUMN nuclear_phase_4 FLOAT DEFAULT 0.0;",
+        "ALTER TABLE countries ADD COLUMN nuclear_phase_5 FLOAT DEFAULT 0.0;",
+        "ALTER TABLE countries ADD COLUMN lab_assigned_phase_1 INTEGER DEFAULT 0;",
+        "ALTER TABLE countries ADD COLUMN lab_assigned_phase_2 INTEGER DEFAULT 0;",
+        "ALTER TABLE countries ADD COLUMN lab_assigned_phase_3 INTEGER DEFAULT 0;",
+        "ALTER TABLE countries ADD COLUMN lab_assigned_phase_4 INTEGER DEFAULT 0;",
+        "ALTER TABLE countries ADD COLUMN lab_assigned_phase_5 INTEGER DEFAULT 0;",
+        "ALTER TABLE countries ADD COLUMN last_expand_turn INTEGER DEFAULT -3;"
+    ]
+    
+    from sqlalchemy import text
+    for stmt in alter_statements:
         try:
-            from sqlalchemy import text
-            await conn.execute(text("ALTER TABLE countries ADD COLUMN nuclear_phase_1 FLOAT DEFAULT 0.0;"))
-            await conn.execute(text("ALTER TABLE countries ADD COLUMN nuclear_phase_2 FLOAT DEFAULT 0.0;"))
-            await conn.execute(text("ALTER TABLE countries ADD COLUMN nuclear_phase_3 FLOAT DEFAULT 0.0;"))
-            await conn.execute(text("ALTER TABLE countries ADD COLUMN nuclear_phase_4 FLOAT DEFAULT 0.0;"))
-            await conn.execute(text("ALTER TABLE countries ADD COLUMN nuclear_phase_5 FLOAT DEFAULT 0.0;"))
-            await conn.execute(text("ALTER TABLE countries ADD COLUMN lab_assigned_phase_1 INTEGER DEFAULT 0;"))
-            await conn.execute(text("ALTER TABLE countries ADD COLUMN lab_assigned_phase_2 INTEGER DEFAULT 0;"))
-            await conn.execute(text("ALTER TABLE countries ADD COLUMN lab_assigned_phase_3 INTEGER DEFAULT 0;"))
-            await conn.execute(text("ALTER TABLE countries ADD COLUMN lab_assigned_phase_4 INTEGER DEFAULT 0;"))
-            await conn.execute(text("ALTER TABLE countries ADD COLUMN lab_assigned_phase_5 INTEGER DEFAULT 0;"))
-            await conn.execute(text("ALTER TABLE countries ADD COLUMN last_expand_turn INTEGER DEFAULT -3;"))
+            async with engine.begin() as conn:
+                await conn.execute(text(stmt))
         except Exception:
             pass
-        
+            
     async with async_session() as session:
         from sqlalchemy import select
         state = await session.scalar(select(GameState))
