@@ -139,8 +139,17 @@ if DATABASE_URL.startswith("postgres://"):
 elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
+connect_args = {}
+if "postgresql+asyncpg://" in DATABASE_URL:
+    # asyncpg doesn't support sslmode=require in the query string the way psycopg2 does
+    import re
+    if "sslmode=require" in DATABASE_URL or "ssl=require" in DATABASE_URL:
+        DATABASE_URL = re.sub(r'[\?&]sslmode=require', '', DATABASE_URL)
+        DATABASE_URL = re.sub(r'[\?&]ssl=require', '', DATABASE_URL)
+        connect_args["ssl"] = "require"
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+
+engine = create_async_engine(DATABASE_URL, echo=False, connect_args=connect_args if "connect_args" in locals() else {})
 async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 async def init_db():
