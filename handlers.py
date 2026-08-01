@@ -263,6 +263,9 @@ async def start_registration(callback: CallbackQuery, state: FSMContext):
 
 @router.message(Registration.name)
 async def process_name(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Ошибка ввода. Ожидается текстовое сообщение с названием.")
+        return
     await state.update_data(name=message.text)
     await state.set_state(Registration.ideology)
     await message.answer(
@@ -275,6 +278,9 @@ async def process_name(message: Message, state: FSMContext):
 
 @router.message(Registration.ideology)
 async def process_ideology(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Ошибка ввода. Ожидается текстовое сообщение с идеологией.")
+        return
     await state.update_data(ideology=message.text)
     await state.set_state(Registration.ruler)
     await message.answer(
@@ -287,6 +293,9 @@ async def process_ideology(message: Message, state: FSMContext):
 
 @router.message(Registration.ruler)
 async def process_ruler(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Ошибка ввода. Ожидается текстовое сообщение с именем правителя.")
+        return
     await state.update_data(ruler=message.text)
     await state.set_state(Registration.party)
     await message.answer(
@@ -299,6 +308,9 @@ async def process_ruler(message: Message, state: FSMContext):
 
 @router.message(Registration.party)
 async def process_party(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Ошибка ввода. Ожидается текстовое сообщение с названием партии.")
+        return
     await state.update_data(party=message.text)
     await state.set_state(Registration.stats)
     await message.answer(
@@ -373,6 +385,11 @@ async def process_flag(message: Message, state: FSMContext):
         "Отправьте картинку (фото) карты вашей страны.",
         parse_mode="HTML"
     )
+
+
+@router.message(Registration.flag)
+async def process_flag_invalid(message: Message):
+    await message.answer("Ошибка ввода. Ожидается фото (картинка) флага.")
 
 @router.message(Registration.map, F.photo)
 async def process_map(message: Message, state: FSMContext, bot: Bot):
@@ -450,6 +467,11 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
         await message.answer("◆ Ваша анкета отправлена на модерацию в закрытый админ чат.")
         
     await state.clear()
+
+
+@router.message(Registration.map)
+async def process_map_invalid(message: Message):
+    await message.answer("Ошибка ввода. Ожидается фото (картинка) карты.")
 
 @router.callback_query(F.data.startswith("approve_"))
 async def approve_country(callback: CallbackQuery, bot: Bot):
