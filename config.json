@@ -1,7 +1,7 @@
 {
   "_comment_game_settings": "Настройки игры. start_year - стартовый год. base_population_growth - базовый процент роста. tax_per_taxpayer_billion - налог с 1 человека. military_hire_cost_billion - цена найма 1 солдата.",
   "game_settings": {
-    "start_year": 1936,
+    "start_year": 1930,
     "turn_duration_days": 182,
     "base_population_growth": 0.006,
     "tax_per_taxpayer_billion": 0.00000018,

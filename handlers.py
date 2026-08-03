@@ -159,7 +159,8 @@ async def cmd_help(message: Message):
         "• /nuclear — Меню ядерной программы\n"
         "• /expand — Рандомайзер событий при расширении территорий\n"
         "• /util [ID техники] [Кол-во] — Утилизация техники\n"
-        "• /spy [ID цели] [Тип операции] — Шпионаж и диверсии\n"
+        "• /spy — Разведка и диверсии\n"
+        "• /counter_intel [кол-во] — Перевод ОА в контрразведку (защиту от шпионов)\n"
         "• /trade — Торговля\n"
     )
     
@@ -173,6 +174,7 @@ async def cmd_help(message: Message):
             "• /next_turn — Завершить ход (расчет экономики)\n"
             "• /set_stat [ID страны] [параметр] [значение] — Изменить статы\n"
             "• /add_stat [ID страны] [параметр] [значение] — Добавить статы (можно минус)\n"
+            "• /world_event [параметр] [значение] [сообщение] — Мировое событие (изменение у всех)\n"
             "  *Параметры: treasury (казна), taxpayers (население), military (армия),\n"
             "  stability, war_support, inflation, intel_points, area*\n"
         )
@@ -239,7 +241,8 @@ async def cmd_profile(message: Message):
             f"🪖 Поддержка войны: {country.war_support:.1f}%\n"
             f"🪖 Регулярная: {country.military:,}, расход: {military_upkeep:.2f} B$\n"
             f"💰 Чистый доход: {net_income:.2f} B$\n\n"
-            f"🕵️ Очки агентуры (ОА): {country.intel_points:.1f} (Агентур: {agencies})"
+            f"🕵️ Очки агентуры (ОА): {country.intel_points:.1f} (Агентур: {agencies})\n"
+            f"🛡 Контрразведка: {country.counter_intel_points:.1f} ОА"
         )
         
         await message.answer(text)
@@ -624,6 +627,38 @@ async def cmd_production(message: Message):
         response += "Снять: `/unset_prod [ID техники] [Количество|all]`\n"
         
         await message.answer(response, parse_mode="Markdown")
+
+@router.message(Command("counter_intel"))
+async def cmd_counter_intel(message: Message):
+    args = message.text.split()
+    if len(args) != 2:
+        await message.answer("⚠️ Использование: `/counter_intel [количество_ОА]`\nПереводит ваши Очки Агентуры в контрразведку для защиты от шпионажа.", parse_mode="Markdown")
+        return
+        
+    try:
+        amount = float(args[1])
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Ошибка: Укажите положительное число.")
+        return
+        
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country:
+            await message.answer("❌ У вас нет страны!")
+            return
+            
+        if country.intel_points < amount:
+            await message.answer(f"❌ Недостаточно ОА! Доступно: {country.intel_points:.1f}")
+            return
+            
+        country.intel_points -= amount
+        country.counter_intel_points += amount
+        await session.commit()
+        
+        await message.answer(f"🛡 Вы успешно перевели {amount:.1f} ОА в контрразведку.\nТекущая защита: {country.counter_intel_points:.1f} ОА.")
+
 @router.message(Command("spy"))
 async def cmd_spy(message: Message):
     async with async_session() as session:
@@ -696,6 +731,37 @@ async def spy_op_selected(callback: CallbackQuery):
             
         country.intel_points -= final_cost
         
+        
+
+        # Защита от шпионажа
+        import random
+        from aiogram import Bot
+        
+        block_chance = 0.0
+        if target.counter_intel_points > 0:
+            block_chance = target.counter_intel_points / final_cost
+            if block_chance > 0.95:
+                block_chance = 0.95
+                
+        if random.random() < block_chance:
+            target.counter_intel_points -= final_cost * block_chance
+            if target.counter_intel_points < 0: target.counter_intel_points = 0.0
+            await session.commit()
+            
+            await callback.message.edit_text(f"❌ **Операция провалена!**\nКонтрразведка страны {target.name} перехватила наших агентов.\nВы потеряли {final_cost:.1f} ОА.", parse_mode="Markdown")
+            await callback.answer()
+            
+            bot = callback.bot
+            try:
+                await bot.send_message(target.owner_id, f"🛡 **Успешная контрразведка!**\nВаши спецслужбы перехватили вражеских агентов страны {country.name}.\nТекущая защита: {target.counter_intel_points:.1f} ОА.", parse_mode="Markdown")
+            except Exception:
+                pass
+            return
+            
+        if target.counter_intel_points > 0:
+            target.counter_intel_points -= final_cost * 0.5
+            if target.counter_intel_points < 0: target.counter_intel_points = 0.0
+
         res = f"🕵️ Отчет разведки (Цель: {target.name})\n------------------------------------\n"
         if op_type == 1:
             res += f"💰 Казна: {target.treasury:.2f} B$"
@@ -1352,6 +1418,65 @@ async def cmd_add_stat(message: Message):
         except Exception as e:
             await message.answer(f"Непредвиденная ошибка: {e}")
 
+@router.message(Command("world_event"))
+async def cmd_world_event(message: Message, bot: Bot):
+    # /world_event [параметр] [значение] [описание...]
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("Ошибка: Эта команда доступна только Root-администратору.")
+            return
+
+        args = message.text.split(maxsplit=3)
+        if len(args) < 3:
+            await message.answer("Использование: `/world_event [параметр] [значение] [опционально: сообщение для всех]`\nИзменяет указанный параметр у ВСЕХ стран (прибавляет значение).", parse_mode="Markdown")
+            return
+            
+        param = args[1]
+        val_str = args[2]
+        event_message = args[3] if len(args) > 3 else None
+        
+        try:
+            val_float = float(val_str)
+        except ValueError:
+            await message.answer("Ошибка: Значение должно быть числом.")
+            return
+            
+        countries = await session.scalars(select(Country))
+        updated_count = 0
+        
+        for country in countries:
+            if hasattr(country, param):
+                col_type = type(getattr(country, param))
+                current_val = getattr(country, param)
+                
+                try:
+                    if col_type == int:
+                        setattr(country, param, current_val + int(float(val_str)))
+                    elif col_type == float:
+                        setattr(country, param, current_val + float(val_str))
+                    else:
+                        continue # Skip non-numeric attributes
+                except Exception:
+                    continue
+                
+                updated_count += 1
+                if event_message:
+                    try:
+                        await bot.send_message(
+                            country.owner_id, 
+                            f"🌍 **Мировое событие!**\n\n{event_message}", 
+                            parse_mode="Markdown"
+                        )
+                    except Exception:
+                        pass
+                        
+        if updated_count > 0:
+            await session.commit()
+            await message.answer(f"✅ Мировое событие применено к {updated_count} странам (изменен параметр {param}).")
+        else:
+            await message.answer("❌ Ошибка: Неверный параметр или параметр не является числовым.")
+
 @router.message(Command("guide"))
 async def cmd_guide(message: Message):
     text = (
@@ -1378,7 +1503,8 @@ async def cmd_guide(message: Message):
         "🕵️ <b>Разведка и Шпионаж:</b>\n"
         "• Здание «Агентура» каждый ход приносит Очки Агентуры (ОА).\n"
         "• За ОА можно узнавать данные о других странах (экономику, армию) или проводить диверсии (остановка их заводов).\n"
-        "• Команда: <code>/spy</code>.\n\n"
+        "• Часть ОА можно перевести в Контрразведку (<code>/counter_intel</code>) для защиты от вражеских шпионов.\n"
+        "• Команды: <code>/spy</code>, <code>/counter_intel</code>.\n\n"
         "🤝 <b>Торговля:</b>\n"
         "• Вы можете обмениваться деньгами и техникой с другими странами.\n"
         "• Команда: <code>/trade</code>.\n\n"
