@@ -159,6 +159,7 @@ async def cmd_help(message: Message):
         "• /nuclear — Меню ядерной программы\n"
         "• /expand — Рандомайзер событий при расширении территорий\n"
         "• /util [ID техники] [Кол-во] — Утилизация техники\n"
+        "• /reform [сумма] [описание] — Выделить деньги на реформы\n"
         "• /spy — Разведка и диверсии\n"
         "• /counter_intel [кол-во] — Перевод ОА в контрразведку (защиту от шпионов)\n"
         "• /trade — Торговля\n"
@@ -862,6 +863,84 @@ async def cmd_delete_player(message: Message):
             
         await session.commit()
         await message.answer(f"✅ Страна **{target_country.name}** и её владелец были удалены из игры.", parse_mode="Markdown")
+
+
+@router.message(Command("reform"))
+async def cmd_reform(message: Message):
+    args = message.text.split(maxsplit=2)
+    if len(args) < 2:
+        await message.answer("⚠️ Использование: `/reform [сумма_в_млрд] [опционально: описание]`\nНапример: `/reform 5 Реформа образования`", parse_mode="Markdown")
+        return
+        
+    try:
+        amount = float(args[1])
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Ошибка: Укажите положительную сумму.")
+        return
+        
+    desc = args[2] if len(args) > 2 else "Без описания"
+    
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country:
+            await message.answer("❌ У вас нет страны!")
+            return
+            
+        if country.treasury < amount:
+            await message.answer(f"❌ Недостаточно средств в казне! Доступно: {country.treasury:.2f} B$")
+            return
+            
+        from keyboards import get_reform_confirm_keyboard
+        await message.answer(
+            f"🏛 **Проведение реформы**\n"
+            f"Сумма: {amount:.2f} B$\n"
+            f"Описание: {desc}\n\n"
+            f"Вы уверены, что хотите выделить средства?",
+            reply_markup=get_reform_confirm_keyboard(amount),
+            parse_mode="Markdown"
+        )
+
+@router.callback_query(F.data.startswith("reform_yes_"))
+async def reform_yes(callback: CallbackQuery):
+    amount = float(callback.data.split("_")[2])
+    
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == callback.from_user.id))
+        if not country:
+            await callback.answer("❌ Страна не найдена.", show_alert=True)
+            return
+            
+        if country.treasury < amount:
+            await callback.answer("❌ Недостаточно средств в казне!", show_alert=True)
+            await callback.message.edit_text("❌ Реформа отменена (недостаточно средств).")
+            return
+            
+        country.treasury -= amount
+        await session.commit()
+        
+        old_text = callback.message.text
+        lines = old_text.split('\n')
+        if len(lines) > 2:
+            new_text = "\n".join(lines[:-2]) + f"\n\n✅ **Реформа успешно проведена!**\nСписано: {amount:.2f} B$.\nТекущая казна: {country.treasury:.2f} B$"
+        else:
+            new_text = f"✅ **Реформа успешно проведена!**\nСписано: {amount:.2f} B$.\nТекущая казна: {country.treasury:.2f} B$"
+            
+        await callback.message.edit_text(new_text, parse_mode="Markdown")
+        await callback.answer()
+
+@router.callback_query(F.data == "reform_no")
+async def reform_no(callback: CallbackQuery):
+    old_text = callback.message.text
+    lines = old_text.split('\n')
+    if len(lines) > 2:
+        new_text = "\n".join(lines[:-2]) + "\n\n❌ **Реформа отменена.**"
+    else:
+        new_text = "❌ **Реформа отменена.**"
+        
+    await callback.message.edit_text(new_text, parse_mode="Markdown")
+    await callback.answer()
 
 @router.message(Command("buildings"))
 async def cmd_buildings(message: Message):
