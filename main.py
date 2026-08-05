@@ -102,6 +102,11 @@ async def status_updater(bot: Bot):
                     if "message is not modified" in str(e).lower():
                         pass
                     else:
+                        logging.error(f"Edit message failed with error: {e}")
+                        try:
+                            await bot.send_message(public_chat, f"⚠️ Ошибка редактирования: {e}", message_thread_id=public_thread)
+                        except:
+                            pass
                         try:
                             msg = await bot.send_message(public_chat, text, parse_mode="Markdown", message_thread_id=public_thread)
                             save_status_data({"message_id": msg.message_id})
@@ -153,6 +158,7 @@ async def on_startup(bot: Bot):
             try:
                 await bot.edit_message_text(text, chat_id=public_chat, message_id=msg_id, parse_mode="Markdown")
             except Exception as e:
+                logging.error(f"Startup Edit message failed with error: {e}")
                 try:
                     msg = await bot.send_message(public_chat, text, parse_mode="Markdown", message_thread_id=public_thread)
                     save_status_data({"message_id": msg.message_id})
