@@ -154,6 +154,7 @@ async def cmd_help(message: Message):
         "• /buildings — Список доступных для постройки зданий\n"
         "• /build [ID здания] [Кол-во] — Построить здания\n"
         "• /production — Просмотр состояния ВПК и складов\n"
+        "• /rate — Просмотр производства за ход (без складов)\n"
         "• /set_prod [ID техники] [ID завода] [Кол-во] — Назначить заводы\n"
         "• /unset_prod [ID техники] [Кол-во|all] — Снять заводы с производства\n"
         "• /nuclear — Меню ядерной программы\n"
@@ -174,6 +175,7 @@ async def cmd_help(message: Message):
             "• /delete_player [ID страны] — Удалить страну\n"
             "• /next_turn — Завершить ход (расчет экономики)\n"
             "• /set_stat [ID страны] [параметр] [значение] — Изменить статы\n"
+            "• /remove_equip [ID страны] [ID техники] [кол-во] — Изъять технику\n"
             "• /add_stat [ID страны] [параметр] [значение] — Добавить статы (можно минус)\n"
             "• /world_event [параметр] [значение] [сообщение] — Мировое событие (изменение у всех)\n"
             "  *Параметры: treasury (казна), taxpayers (население), military (армия),\n"
@@ -542,6 +544,66 @@ async def toggle_martial_law(callback: CallbackQuery):
             reply_markup=get_army_keyboard()
         )
         await callback.answer(f"Военное положение: {'ВКЛ' if country.martial_law else 'ВЫКЛ'}")
+
+
+@router.message(Command("rate"))
+async def cmd_rate(message: Message):
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country:
+            await message.answer("У вас нет страны!")
+            return
+            
+        from sqlalchemy.orm import selectinload
+        country_full = await session.scalar(
+            select(Country)
+            .options(
+                selectinload(Country.buildings),
+                selectinload(Country.productions)
+            )
+            .where(Country.id == country.id)
+        )
+        
+        cfg = get_config()
+        
+        response = f"◆ Производство Страны: {country_full.name}\n------------------------------------\n"
+        
+        # Group items by category
+        items_by_category = {}
+        for item in cfg.items:
+            items_by_category.setdefault(item.category, []).append(item)
+            
+        has_production = False
+        for category, items in items_by_category.items():
+            cat_response = ""
+            for item in items:
+                # Find production
+                cp = next((p for p in country_full.productions if p.item_id == item.item_id), None)
+                factories = cp.assigned_factories if cp else 0
+                if factories > 0:
+                    production = factories * item.output_per_factory
+                    
+                    b_cfg = next((b for b in cfg.buildings if b.building_id == item.required_factory_id), None)
+                    b_short = b_cfg.short_name if b_cfg else ""
+                    
+                    sec_short = ""
+                    if getattr(item, 'secondary_factory_id', None):
+                        sec_cfg = next((b for b in cfg.buildings if b.building_id == item.secondary_factory_id), None)
+                        if sec_cfg:
+                            sec_count = factories * getattr(item, 'secondary_factory_count', 0)
+                            sec_short = f" + {sec_count}{sec_cfg.short_name}"
+                            
+                    prod_formatted = f"{production:,.1f}".replace('.0', '') if isinstance(production, float) else f"{production:,}"
+                    cat_response += f"▫️ {item.name}: +{prod_formatted}шт ({factories}{b_short}{sec_short})\n"
+                    has_production = True
+            
+            if cat_response:
+                response += f"🔹 **{category}**\n" + cat_response + "\n"
+                
+        if not has_production:
+            response += "Ничего не производится."
+            
+        await message.answer(response, parse_mode="Markdown")
 
 @router.message(Command("production"))
 async def cmd_production(message: Message):
@@ -1451,6 +1513,54 @@ async def cmd_util(message: Message):
         await message.answer(f"✅ Успешно утилизировано {count:,} ед. техники (ID {i_id}).")
 
 
+
+@router.message(Command("remove_equip"))
+async def cmd_remove_equip(message: Message):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("Ошибка: Эта команда доступна только Root-администратору.")
+            return
+
+        args = message.text.split()
+        if len(args) != 4:
+            await message.answer("Использование: `/remove_equip [ID_страны] [ID_техники] [Количество]`", parse_mode="Markdown")
+            return
+            
+        try:
+            c_id = int(args[1])
+            i_id = int(args[2])
+            count = int(args[3])
+            if count <= 0: raise ValueError
+        except ValueError:
+            await message.answer("Ошибка: Аргументы должны быть положительными числами.")
+            return
+            
+        country = await session.scalar(select(Country).where(Country.id == c_id))
+        if not country:
+            await message.answer("Страна не найдена.")
+            return
+            
+        from database import CountryStockpile
+        cs = await session.scalar(select(CountryStockpile).where(
+            CountryStockpile.country_id == country.id,
+            CountryStockpile.item_id == i_id
+        ))
+        
+        if not cs or cs.amount < count:
+            avail = cs.amount if cs else 0
+            await message.answer(f"❌ Ошибка: У страны недостаточно техники. В наличии: {avail}")
+            return
+            
+        cs.amount -= count
+        await session.commit()
+        
+        cfg = get_config()
+        i_cfg = next((i for i in cfg.items if i.item_id == i_id), None)
+        name = i_cfg.name if i_cfg else f"ID {i_id}"
+        
+        await message.answer(f"✅ Успешно изъято {count} ед. {name} у страны {country.name}.")
+
 @router.message(Command("add_stat"))
 async def cmd_add_stat(message: Message):
     # /add_stat [тег_страны/ID] [параметр] [значение]
@@ -1570,7 +1680,7 @@ async def cmd_guide(message: Message):
         "⚙️ <b>Производство (ВПК):</b>\n"
         "• Военные заводы производят технику и вооружение.\n"
         "• Для производства техники нужны заводы определенного типа (например, Военный завод для винтовок).\n"
-        "• Команды: <code>/buildings</code>, <code>/build</code>, <code>/production</code>, <code>/set_prod</code>.\n\n"
+        "• Команды: <code>/buildings</code>, <code>/build</code>, <code>/production</code>, <code>/rate</code>, <code>/set_prod</code>.\n\n"
         "☢️ <b>Ядерная программа:</b>\n"
         "• Постройте Ядерные лаборатории (доступно после 5-го хода).\n"
         "• Назначайте лаборатории на этапы исследования командой <code>/lab_assign</code> (меню <code>/nuclear</code>).\n"
