@@ -3,10 +3,10 @@
   "game_settings": {
     "start_year": 1930,
     "turn_duration_days": 182,
-    "base_population_growth": 0.006,
-    "tax_per_taxpayer_billion": 0.00000018,
-    "military_upkeep_per_soldier_billion": 0.0000002,
-    "military_hire_cost_billion": 0.000006,
+    "base_population_growth": 0.005,
+    "tax_per_taxpayer_billion": 1.56e-07,
+    "military_upkeep_per_soldier_billion": 1.5e-07,
+    "military_hire_cost_billion": 6e-05,
     "max_sum_stability_war_support": 150.0,
     "max_country_area": 150000.0,
     "root_admin_id": 1577409963,
@@ -338,6 +338,48 @@
       "required_factory_id": 3,
       "output_per_factory": 15,
       "item_id": 38
+    },
+    {
+      "category": "Огнестрел",
+      "name": "Огнеметы",
+      "required_factory_id": 1,
+      "output_per_factory": 500,
+      "item_id": 39
+    },
+    {
+      "category": "Снаряжение",
+      "name": "Гранаты",
+      "required_factory_id": 1,
+      "output_per_factory": 20000,
+      "item_id": 40
+    },
+    {
+      "category": "Снаряжение",
+      "name": "Штыки",
+      "required_factory_id": 1,
+      "output_per_factory": 30000,
+      "item_id": 41
+    },
+    {
+      "category": "Снаряжение",
+      "name": "Каски",
+      "required_factory_id": 1,
+      "output_per_factory": 25000,
+      "item_id": 42
+    },
+    {
+      "category": "Снаряжение",
+      "name": "Саперные лопатки",
+      "required_factory_id": 1,
+      "output_per_factory": 20000,
+      "item_id": 43
+    },
+    {
+      "category": "Бронетехника",
+      "name": "Грузовые автомобили",
+      "required_factory_id": 1,
+      "output_per_factory": 1500,
+      "item_id": 44
     }
   ]
 }

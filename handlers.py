@@ -548,61 +548,36 @@ async def toggle_martial_law(callback: CallbackQuery):
 
 @router.message(Command("rate"))
 async def cmd_rate(message: Message):
-    async with async_session() as session:
-        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
-        if not country:
-            await message.answer("У вас нет страны!")
-            return
+    cfg = get_config()
+    
+    response = "◆ **Производительность техники (за 1 завод):**\n------------------------------------\n"
+    
+    # Group items by category
+    items_by_category = {}
+    for item in cfg.items:
+        items_by_category.setdefault(item.category, []).append(item)
+        
+    for category, items in items_by_category.items():
+        response += f"🔹 **{category}**\n"
+        for item in items:
+            b_cfg = next((b for b in cfg.buildings if b.building_id == item.required_factory_id), None)
+            b_short = b_cfg.short_name if b_cfg else ""
             
-        from sqlalchemy.orm import selectinload
-        country_full = await session.scalar(
-            select(Country)
-            .options(
-                selectinload(Country.buildings),
-                selectinload(Country.productions)
-            )
-            .where(Country.id == country.id)
-        )
-        
-        cfg = get_config()
-        
-        response = f"◆ Производство Страны: {country_full.name}\n------------------------------------\n"
-        
-        # Group items by category
-        items_by_category = {}
-        for item in cfg.items:
-            items_by_category.setdefault(item.category, []).append(item)
-            
-        has_production = False
-        for category, items in items_by_category.items():
-            cat_response = ""
-            for item in items:
-                # Find production
-                cp = next((p for p in country_full.productions if p.item_id == item.item_id), None)
-                factories = cp.assigned_factories if cp else 0
-                if factories > 0:
-                    production = factories * item.output_per_factory
+            sec_short = ""
+            if getattr(item, 'secondary_factory_id', None):
+                sec_cfg = next((b for b in cfg.buildings if b.building_id == item.secondary_factory_id), None)
+                if sec_cfg:
+                    sec_count = getattr(item, 'secondary_factory_count', 0)
+                    sec_short = f" + {sec_count}{sec_cfg.short_name}"
                     
-                    b_cfg = next((b for b in cfg.buildings if b.building_id == item.required_factory_id), None)
-                    b_short = b_cfg.short_name if b_cfg else ""
-                    
-                    sec_short = ""
-                    if getattr(item, 'secondary_factory_id', None):
-                        sec_cfg = next((b for b in cfg.buildings if b.building_id == item.secondary_factory_id), None)
-                        if sec_cfg:
-                            sec_count = factories * getattr(item, 'secondary_factory_count', 0)
-                            sec_short = f" + {sec_count}{sec_cfg.short_name}"
-                            
-                    prod_formatted = f"{production:,.1f}".replace('.0', '') if isinstance(production, float) else f"{production:,}"
-                    cat_response += f"▫️ {item.name}: +{prod_formatted}шт ({factories}{b_short}{sec_short})\n"
-                    has_production = True
-            
-            if cat_response:
-                response += f"🔹 **{category}**\n" + cat_response + "\n"
-                
-        if not has_production:
-            response += "Ничего не производится."
-            
+            prod_formatted = f"{item.output_per_factory:,.1f}".replace('.0', '') if isinstance(item.output_per_factory, float) else f"{item.output_per_factory:,}"
+            response += f"▫️ {item.item_id}. {item.name}: {prod_formatted} шт. (нужно 1{b_short}{sec_short})\n"
+        response += "\n"
+        
+    if len(response) > 4000:
+        for x in range(0, len(response), 4000):
+            await message.answer(response[x:x+4000], parse_mode="Markdown")
+    else:
         await message.answer(response, parse_mode="Markdown")
 
 @router.message(Command("production"))
