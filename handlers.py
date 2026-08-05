@@ -10,6 +10,7 @@ import random
 from keyboards import get_start_keyboard, get_moderation_keyboard, get_army_keyboard
 from engine import get_config
 
+router = Router()
 
 import time
 
@@ -21,7 +22,6 @@ async def cmd_ping(message: Message):
     ping_ms = (end - start) * 1000
     await msg.edit_text(f"🏓 **Pong!**\nПинг: `{ping_ms:.2f} мс`\nБот работает стабильно.", parse_mode="Markdown")
 
-router = Router()
 
 
 @router.message(Command("set_status_chat"))
@@ -33,6 +33,7 @@ async def cmd_set_status_chat(message: Message):
             return
             
     import json
+    import os
     
     base_dir = os.path.dirname(os.path.abspath(__file__))
     cfg_path = os.path.join(base_dir, 'config.json')
@@ -47,7 +48,6 @@ async def cmd_set_status_chat(message: Message):
         json.dump(config_data, f, ensure_ascii=False, indent=2)
         
     # Remove old status message ID so it creates a new one here
-    import os
     
     status_file = os.path.join(base_dir, "status_msg.json")
     if os.path.exists(status_file):
