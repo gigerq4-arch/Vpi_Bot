@@ -10,7 +10,51 @@ import random
 from keyboards import get_start_keyboard, get_moderation_keyboard, get_army_keyboard
 from engine import get_config
 
+
+import time
+
+@router.message(Command("ping"))
+async def cmd_ping(message: Message):
+    start = time.perf_counter()
+    msg = await message.answer("🏓 Pinging...")
+    end = time.perf_counter()
+    ping_ms = (end - start) * 1000
+    await msg.edit_text(f"🏓 **Pong!**\nПинг: `{ping_ms:.2f} мс`\nБот работает стабильно.", parse_mode="Markdown")
+
 router = Router()
+
+
+@router.message(Command("set_status_chat"))
+async def cmd_set_status_chat(message: Message):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("Ошибка: Эта команда доступна только Root-администратору.")
+            return
+            
+    import json
+    
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    cfg_path = os.path.join(base_dir, 'config.json')
+    with open(cfg_path, 'r', encoding='utf-8') as f:
+
+        config_data = json.load(f)
+        
+    config_data['game_settings']['public_chat_id'] = message.chat.id
+    config_data['game_settings']['public_chat_thread_id'] = message.message_thread_id or 0
+    
+    with open(cfg_path, 'w', encoding='utf-8') as f:
+        json.dump(config_data, f, ensure_ascii=False, indent=2)
+        
+    # Remove old status message ID so it creates a new one here
+    import os
+    
+    status_file = os.path.join(base_dir, "status_msg.json")
+    if os.path.exists(status_file):
+
+        os.remove(status_file)
+        
+    await message.answer(f"✅ Чат для статуса бота установлен на этот чат (ID: {message.chat.id}, Тема: {message.message_thread_id or 0}).\nПерезапустите бота, чтобы появилось сообщение.")
 
 class Registration(StatesGroup):
     name = State()
@@ -148,6 +192,7 @@ async def cmd_help(message: Message):
         "------------------------------------\n"
         "• /start — Главное меню\n"
         "• /help — Список команд\n"
+        "• /ping — Проверить отклик бота\n"
         "• /guide — Руководство для новичков\n"
         "• /profile — Статистика и экономика страны\n"
         "• /army — Управление армией (найм, демобилизация)\n"

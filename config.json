@@ -10,7 +10,9 @@
     "max_sum_stability_war_support": 150.0,
     "max_country_area": 150000.0,
     "root_admin_id": 1577409963,
-    "admin_chat_id": -5316077477
+    "admin_chat_id": -5316077477,
+    "public_chat_id": -1004461491504,
+    "public_chat_thread_id": 2520
   },
   "_comment_buildings": "Здания в игре. income_billion - пассивный доход каждый ход. Вы можете добавить сюда свои здания. building_id должен быть уникальным.",
   "buildings": [
@@ -104,7 +106,7 @@
       "category": "Артиллерия",
       "name": "Противотанковые пушки",
       "required_factory_id": 1,
-      "output_per_factory": 350
+      "output_per_factory": 200
     },
     {
       "item_id": 6,
@@ -174,7 +176,7 @@
       "category": "Флот",
       "name": "Подводные лодки",
       "required_factory_id": 3,
-      "output_per_factory": 10
+      "output_per_factory": 2
     },
     {
       "item_id": 16,
@@ -266,7 +268,7 @@
       "category": "Артиллерия",
       "name": "Горные пушки",
       "required_factory_id": 1,
-      "output_per_factory": 300,
+      "output_per_factory": 400,
       "item_id": 28
     },
     {
@@ -366,13 +368,6 @@
       "required_factory_id": 1,
       "output_per_factory": 25000,
       "item_id": 42
-    },
-    {
-      "category": "Снаряжение",
-      "name": "Саперные лопатки",
-      "required_factory_id": 1,
-      "output_per_factory": 20000,
-      "item_id": 43
     },
     {
       "category": "Бронетехника",

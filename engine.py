@@ -14,6 +14,8 @@ class GameSettings(BaseModel):
     max_country_area: float
     root_admin_id: int = 1577409963
     admin_chat_id: int = -5316077477
+    public_chat_id: int | None = None
+    public_chat_thread_id: int | None = None
 
 class BuildingConfig(BaseModel):
     building_id: int
