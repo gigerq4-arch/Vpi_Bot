@@ -88,7 +88,6 @@ async def status_updater(bot: Bot):
                 f"⏱ Аптайм: `{uptime_str}`\n"
                 f"🏓 Пинг API: `{ping_ms:.0f} мс`\n"
                 f"🔄 Последнее обновление: `{current_time}`\n\n"
-                f"{CHANGELOG_TEXT}\n\n"
                 "💡 *Сообщение обновляется автоматически каждые 60с.*"
             )
 
@@ -103,10 +102,6 @@ async def status_updater(bot: Bot):
                         pass
                     else:
                         logging.error(f"Edit message failed with error: {e}")
-                        try:
-                            await bot.send_message(public_chat, f"⚠️ Ошибка редактирования: {e}", message_thread_id=public_thread)
-                        except:
-                            pass
                         try:
                             msg = await bot.send_message(public_chat, text, parse_mode="Markdown", message_thread_id=public_thread)
                             save_status_data({"message_id": msg.message_id})
@@ -147,7 +142,6 @@ async def on_startup(bot: Bot):
             f"⏱ Аптайм: `{uptime_str}`\n"
             f"🏓 Пинг API: `{ping_ms:.0f} мс`\n"
             f"🔄 Последнее обновление: `{current_time}`\n\n"
-            f"{CHANGELOG_TEXT}\n\n"
             "💡 *Сообщение обновляется автоматически каждые 60с.*"
         )
         

@@ -1332,6 +1332,49 @@ async def cmd_toggle_nuclear(message: Message):
     await message.answer(f"✅ Ядерная программа (и строительство лабораторий) успешно **{status}**.", parse_mode="Markdown")
 
 @router.message(Command("next_turn"))
+
+@router.message(Command("add_bonus"))
+async def cmd_add_bonus(message: Message):
+    from database import CountryEvent
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("Ошибка: Эта команда доступна только Root-администратору.")
+            return
+            
+        args = message.text.split(maxsplit=6)
+        if len(args) < 6:
+            await message.answer("Использование: /add_bonus <ID_страны> <Налог_%> <Стабильность_%> <Поддержка_войны_%> <Ходов> <Описание>\nПример: /add_bonus 1 10 0 0 5 Экономический бум")
+            return
+            
+        try:
+            country_id = int(args[1])
+            tax_mod = float(args[2])
+            stab_mod = float(args[3])
+            war_mod = float(args[4])
+            turns = int(args[5])
+            desc = args[6]
+        except ValueError:
+            await message.answer("Ошибка: Неверный формат чисел.")
+            return
+            
+        country = await session.scalar(select(Country).where(Country.id == country_id))
+        if not country:
+            await message.answer(f"Страна с ID {country_id} не найдена.")
+            return
+            
+        event = CountryEvent(
+            country_id=country_id,
+            description=desc,
+            tax_modifier=tax_mod,
+            stability_modifier=stab_mod,
+            war_support_modifier=war_mod,
+            turns_left=turns
+        )
+        session.add(event)
+        await session.commit()
+        await message.answer(f"✅ Бонус '{desc}' успешно добавлен стране {country.name} на {turns} ходов.")
+
 async def cmd_next_turn(message: Message, bot: Bot):
     from database import GameState
     async with async_session() as session:
@@ -1383,6 +1426,31 @@ async def cmd_next_turn(message: Message, bot: Bot):
             tax_income = country.taxpayers * cfg.game_settings.tax_per_taxpayer_billion
             if country.martial_law:
                 tax_income *= 0.5 # штраф -50% (было 30%)
+                
+            # Применение ивентов
+            from database import CountryEvent
+            events = await session.scalars(select(CountryEvent).where(CountryEvent.country_id == country.id))
+            
+            total_tax_mod = 0.0
+            
+            for ev in events:
+                if ev.turns_left > 0:
+                    total_tax_mod += ev.tax_modifier
+                    country.stability += ev.stability_modifier
+                    country.war_support += ev.war_support_modifier
+                    
+                    if country.stability > cfg.game_settings.max_sum_stability_war_support:
+                        country.stability = cfg.game_settings.max_sum_stability_war_support
+                    if country.war_support > cfg.game_settings.max_sum_stability_war_support:
+                        country.war_support = cfg.game_settings.max_sum_stability_war_support
+                        
+                    ev.turns_left -= 1
+                
+                if ev.turns_left <= 0:
+                    await session.delete(ev)
+                    
+            if total_tax_mod != 0.0:
+                tax_income = tax_income * (1.0 + (total_tax_mod / 100.0))
                 
             # Доход от фабрик (id=5)
             factory_buildings = await session.scalar(

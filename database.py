@@ -54,6 +54,7 @@ class Country(Base):
     buildings: Mapped[list["CountryBuilding"]] = relationship("CountryBuilding", back_populates="country")
     productions: Mapped[list["CountryProduction"]] = relationship("CountryProduction", back_populates="country")
     stockpiles: Mapped[list["CountryStockpile"]] = relationship("CountryStockpile", back_populates="country")
+    events: Mapped[list["CountryEvent"]] = relationship("CountryEvent", back_populates="country")
 
     # Ядерная программа
     nuclear_phase_1: Mapped[float] = mapped_column(Float, default=0.0)
@@ -98,6 +99,21 @@ class CountryStockpile(Base):
     amount: Mapped[float] = mapped_column(Float, default=0.0)
 
     country: Mapped["Country"] = relationship("Country", back_populates="stockpiles")
+
+
+class CountryEvent(Base):
+    __tablename__ = 'country_events'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    country_id: Mapped[int] = mapped_column(Integer, ForeignKey('countries.id'))
+    description: Mapped[str] = mapped_column(String)
+    
+    tax_modifier: Mapped[float] = mapped_column(Float, default=0.0)
+    stability_modifier: Mapped[float] = mapped_column(Float, default=0.0)
+    war_support_modifier: Mapped[float] = mapped_column(Float, default=0.0)
+    
+    turns_left: Mapped[int] = mapped_column(Integer)
+    
+    country: Mapped["Country"] = relationship("Country", back_populates="events")
 
 class TradeSession(Base):
     __tablename__ = 'trade_sessions'
@@ -169,6 +185,7 @@ async def init_db():
         "ALTER TABLE countries ADD COLUMN lab_assigned_phase_4 INTEGER DEFAULT 0;",
         "ALTER TABLE countries ADD COLUMN lab_assigned_phase_5 INTEGER DEFAULT 0;",
         "ALTER TABLE countries ADD COLUMN last_expand_turn INTEGER DEFAULT -3;"
+        "CREATE TABLE IF NOT EXISTS country_events (id SERIAL PRIMARY KEY, country_id INTEGER REFERENCES countries(id), description VARCHAR, tax_modifier FLOAT DEFAULT 0.0, stability_modifier FLOAT DEFAULT 0.0, war_support_modifier FLOAT DEFAULT 0.0, turns_left INTEGER);"
     ]
     
     from sqlalchemy import text
