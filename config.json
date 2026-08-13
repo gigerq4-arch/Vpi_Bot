@@ -3,16 +3,17 @@
   "game_settings": {
     "start_year": 1930,
     "turn_duration_days": 182,
-    "base_population_growth": 0.005,
-    "tax_per_taxpayer_billion": 0.000001,
-    "military_upkeep_per_soldier_billion": 1.5e-07,
-    "military_hire_cost_billion": 6e-05,
+    "base_population_growth": 0.5,
+    "tax_per_taxpayer_billion": 1e-06,
+    "military_upkeep_per_soldier_billion": 1.25e-05,
+    "military_hire_cost_billion": 0.00015,
     "max_sum_stability_war_support": 150.0,
     "max_country_area": 150000.0,
     "root_admin_id": 1577409963,
     "admin_chat_id": -5316077477,
     "public_chat_id": -1004461491504,
-    "public_chat_thread_id": 2520
+    "public_chat_thread_id": 2520,
+    "frostpunk_event": true
   },
   "_comment_buildings": "Здания в игре. income_billion - пассивный доход каждый ход. Вы можете добавить сюда свои здания. building_id должен быть уникальным.",
   "buildings": [
@@ -57,7 +58,7 @@
       "name": "Фабрика",
       "short_name": "фб",
       "description": "Гражданское здание, приносит пассивный доход 0.4 B$ за ход.",
-      "base_cost_billion": 1.2,
+      "base_cost_billion": 1.25,
       "income_billion": 0.4,
       "enabled": true
     },
@@ -66,7 +67,7 @@
       "name": "Ядерная лаборатория",
       "short_name": "лаб",
       "description": "Исследует и производит ядерное оружие.",
-      "base_cost_billion": 17.0,
+      "base_cost_billion": 15.0,
       "income_billion": 0.0,
       "enabled": true
     }
@@ -106,7 +107,7 @@
       "category": "Артиллерия",
       "name": "Противотанковые пушки",
       "required_factory_id": 1,
-      "output_per_factory": 200
+      "output_per_factory": 250
     },
     {
       "item_id": 6,
@@ -240,7 +241,7 @@
       "category": "Огнестрел",
       "name": "Пистолеты",
       "required_factory_id": 1,
-      "output_per_factory": 8000,
+      "output_per_factory": 8500,
       "item_id": 24
     },
     {
@@ -261,7 +262,7 @@
       "category": "Артиллерия",
       "name": "Береговые орудия",
       "required_factory_id": 1,
-      "output_per_factory": 25,
+      "output_per_factory": 30,
       "item_id": 27
     },
     {
@@ -331,7 +332,7 @@
       "category": "Авиация",
       "name": "Аэропланы",
       "required_factory_id": 2,
-      "output_per_factory": 100,
+      "output_per_factory": 110,
       "item_id": 37
     },
     {
