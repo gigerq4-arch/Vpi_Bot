@@ -14,7 +14,7 @@ router = Router()
 class FrostpunkFSM(StatesGroup):
     waiting_for_factories = State()
 
-@router.message(Command("frostpunk"))
+@router.message(Command("frostpunk", "generator"))
 async def cmd_frostpunk(message: Message):
     cfg = get_config()
     if not getattr(cfg.game_settings, "frostpunk_event", False):
@@ -22,11 +22,10 @@ async def cmd_frostpunk(message: Message):
         return
 
     async with async_session() as session:
-        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
-        if not user or not user.country_id:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country:
             await message.answer("Сначала зарегистрируйтесь и создайте страну.")
             return
-        country = await session.scalar(select(Country).where(Country.id == user.country_id))
 
         gen_stock = await session.scalar(
             select(CountryStockpile.amount)
