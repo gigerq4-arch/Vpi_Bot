@@ -168,7 +168,7 @@ if "postgresql+asyncpg://" in DATABASE_URL:
         connect_args["ssl"] = "require"
 
 
-engine = create_async_engine(DATABASE_URL, echo=False, connect_args=connect_args if "connect_args" in locals() else {})
+engine = create_async_engine(DATABASE_URL, echo=False, connect_args=connect_args if "connect_args" in locals() else {}, pool_pre_ping=True, pool_recycle=1800)
 async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 async def init_db():
@@ -208,3 +208,12 @@ async def init_db():
         if not state:
             session.add(GameState(turn_number=1))
             await session.commit()
+
+class ExpandRequest(Base):
+    __tablename__ = 'expand_requests'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger)
+    army: Mapped[int] = mapped_column(Integer)
+    population: Mapped[int] = mapped_column(Integer)
+    vehicles: Mapped[str] = mapped_column(String) # JSON string
+    photo_id: Mapped[str] = mapped_column(String)

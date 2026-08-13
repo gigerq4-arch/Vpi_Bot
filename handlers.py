@@ -150,14 +150,17 @@ async def cmd_help(message: Message):
         "• /guide — Руководство для новичков\n"
         "• /profile — Статистика и экономика страны\n"
         "• /army — Управление армией (найм, демобилизация)\n"
-        "• /buildings — Список доступных для постройки зданий\n"        "• /generator — Управление Генератором (ивент Frostpunk)\n"
-        "• /build [ID здания] [Кол-во] — Построить здания\n"
+        "• /buildings, /build — Справочник и постройка зданий\n"
         "• /production — Просмотр состояния ВПК и складов\n"
-        "• /set_prod [ID техники] [ID завода] [Кол-во] — Назначить заводы\n"
-        "• /unset_prod [ID техники] [Кол-во|all] — Снять заводы с производства\n"
+        "• /rate — Нормы производства техники (за 1 завод)\n"
+        "• /set_prod, /unset_prod — Назначение и снятие заводов\n"
         "• /util [ID техники] [Кол-во] — Утилизация техники\n"
-        "• /spy [ID цели] [Тип операции] — Шпионаж и диверсии\n"
-        "• /trade — Торговля\n"
+        "• /spy — Шпионаж и диверсии\n"
+        "• /trade — Торговля с другими странами\n"
+        "• /generator — Управление Генератором (ивент Frostpunk)\n"
+        "• /gen_assign, /gen_remove — Назначить/Снять гражданские фабрики\n"
+        "• /nuclear — Ядерная программа\n"
+        "• /lab_assign, /lab_remove — Назначить/Снять военные заводы и лаборатории\n"
     )
     
     if is_admin:
@@ -169,12 +172,37 @@ async def cmd_help(message: Message):
             "• /delete_player [ID страны] — Удалить страну\n"
             "• /next_turn — Завершить ход (расчет экономики)\n"
             "• /set_stat [ID страны] [параметр] [значение] — Изменить статы\n"
-            "• /add_stat [ID страны] [параметр] [значение] — Добавить статы (можно минус)\n"
-            "  *Параметры: treasury (казна), taxpayers (население), military (армия),\n"
-            "  stability, war_support, inflation, intel_points, area*\n"
+            "• /add_stat [ID страны] [параметр] [значение] — Добавить статы\n"
+            "• /add_gen [ID страны] [кол-во] — Выдать детали генератора\n"
+            "• /toggle_frostpunk — Включить/Выключить ивент Frostpunk\n"
+            "• /world_stat [параметр] [значение] — Установить точное значение стата ВСЕМ странам мира (рождаемость и др.)\n"
+            "• /world_event [параметр] [значение] [Текст] — Добавить/отнять статы у ВСЕХ стран мира с рассылкой\n"
+            "  *Параметры: treasury, taxpayers, military, stability, war_support, inflation, intel_points, area, growth_modifier*\n"
         )
         
     await message.answer(text)
+
+@router.message(Command("rate", "rates"))
+async def cmd_rate(message: Message):
+    cfg = get_config()
+    
+    text = "◆ Нормы производства (за 1 завод в ход)\n------------------------------------\n"
+    
+    items_by_category = {}
+    for item in cfg.items:
+        if item.item_id == 45: continue # Skip Generator
+        if item.item_id == 21: continue # Skip Nuclear weapon
+        items_by_category.setdefault(item.category, []).append(item)
+        
+    for category, items in items_by_category.items():
+        text += f"🔹 **{category}**\n"
+        for item in items:
+            b_cfg = next((b for b in cfg.buildings if b.building_id == item.required_factory_id), None)
+            b_short = b_cfg.short_name if b_cfg else ""
+            text += f"▫️ {item.item_id}. {item.name}: {item.output_per_factory:,} шт. ({b_short})\n"
+        text += "\n"
+        
+    await message.answer(text, parse_mode="Markdown")
 
 @router.message(Command("profile", "eco", "stats"))
 async def cmd_profile(message: Message):
@@ -191,7 +219,7 @@ async def cmd_profile(message: Message):
         pop_str = f"{total_population / 1_000_000:.2f} млн"
         taxpayers_str = f"{country.taxpayers / 1_000_000:.2f} млн"
         
-        pop_growth = cfg.game_settings.base_population_growth * 100
+        pop_growth = cfg.game_settings.base_population_growth + getattr(country, 'growth_modifier', 0.0)
         
         tax_income = country.taxpayers * cfg.game_settings.tax_per_taxpayer_billion
         military_upkeep = country.military * cfg.game_settings.military_upkeep_per_soldier_billion
@@ -203,12 +231,27 @@ async def cmd_profile(message: Message):
         factory_income = 0.0
         agencies = 0
         
+        # Determine factories assigned to generator
+        used_for_gen = 0
+        if getattr(cfg.game_settings, "frostpunk_event", False):
+            from database import CountryProduction
+            gen_prod = await session.scalar(
+                select(CountryProduction)
+                .where(CountryProduction.country_id == country.id, CountryProduction.item_id == 45)
+            )
+            if gen_prod:
+                used_for_gen = gen_prod.assigned_factories
+
         for b in buildings:
             b_cfg = next((x for x in cfg.buildings if x.building_id == b.building_id), None)
             if b_cfg:
                 if getattr(b_cfg, 'income_billion', 0.0) > 0:
                     total_factories += b.total_count
-                    factory_income += b.total_count * b_cfg.income_billion
+                    if b.building_id == 5:
+                        free_factories = max(0, b.total_count - used_for_gen)
+                        factory_income += free_factories * b_cfg.income_billion
+                    else:
+                        factory_income += b.total_count * b_cfg.income_billion
                 if getattr(b_cfg, 'name', '') == 'Агентура':
                     agencies += b.total_count
         
@@ -231,13 +274,31 @@ async def cmd_profile(message: Message):
                 f"🏢 Доход предприятий (чисто): 0.00 B$\n"
             )
             
+        if getattr(cfg.game_settings, "frostpunk_event", False):
+            from database import CountryStockpile
+            gen_stock = await session.scalar(
+                select(CountryStockpile.amount)
+                .where(CountryStockpile.country_id == country.id, CountryStockpile.item_id == 45)
+            )
+            gen_count = gen_stock if gen_stock else 0
+            radius_lvl = getattr(country, "gen_radius_level", 1)
+            capacity_per_gen = 2_000_000 + (radius_lvl - 1) * 500_000
+            total_capacity = int(gen_count * capacity_per_gen)
+            heated_pop = min(country.taxpayers, total_capacity)
+            unheated_pop = max(0, country.taxpayers - heated_pop)
+            
+            text += (
+                f"🔥 В тепле: {heated_pop / 1_000_000:.2f} млн\n"
+                f"❄️ Мёрзнут: {unheated_pop / 1_000_000:.2f} млн (штраф к стаб.)\n"
+            )
+
         text += (
             f"📈 Инфляция: {country.inflation:.1f}%\n"
             f"⚖️ Стабильность: {country.stability:.2f}%\n"
             f"🪖 Поддержка войны: {country.war_support:.1f}%\n"
             f"🪖 Регулярная: {country.military:,}, расход: {military_upkeep:.2f} B$\n"
             f"💰 Чистый доход: {net_income:.2f} B$\n\n"
-            f"🕵️ Очки агентуры (ОА): {country.intel_points:.1f} (Агентур: {agencies})"
+            f"🕵️ Очки агентуры (ОА): {country.intel_points:.1f} (Агентур: {agencies})\n"            f"🛡 Контрразведка: {country.counter_intel_points:.1f} ОА"
         )
         
         await message.answer(text)
@@ -548,7 +609,7 @@ async def cmd_spy(message: Message):
         await message.answer(
             f"🕵️ **Разведка (Доступно: {country.intel_points:.1f} ОА)**\n"
             f"------------------------------------\n"
-            f"Выберите страну для проведения шпионской операции:",
+            f"Выберите страну для проведения шпионской операции:\n*(Для перевода ОА в контрразведку используйте /counter_intel [кол-во])*:",
             reply_markup=get_spy_targets_keyboard(targets),
             parse_mode="Markdown"
         )
@@ -601,6 +662,16 @@ async def spy_op_selected(callback: CallbackQuery):
             
         country.intel_points -= final_cost
         
+        # Counter-intelligence check
+        if target.counter_intel_points >= final_cost:
+            target.counter_intel_points -= final_cost
+            await session.commit()
+            await callback.message.edit_text(f"🚨 ПРОВАЛ ОПЕРАЦИИ 🚨\nКонтрразведка {target.name} перехватила ваших агентов! Вы потеряли {final_cost:.1f} ОА.")
+            await callback.answer()
+            return
+        elif target.counter_intel_points > 0:
+            target.counter_intel_points = 0
+        
         res = f"🕵️ Отчет разведки (Цель: {target.name})\n------------------------------------\n"
         if op_type == 1:
             res += f"💰 Казна: {target.treasury:.2f} B$"
@@ -631,6 +702,33 @@ async def spy_op_selected(callback: CallbackQuery):
         await session.commit()
         await callback.message.edit_text(res)
         await callback.answer()
+
+
+@router.message(Command("counter_intel"))
+async def cmd_counter_intel(message: Message):
+    args = message.text.split()
+    if len(args) != 2:
+        await message.answer("Использование: `/counter_intel [кол-во]`", parse_mode="Markdown")
+        return
+    try:
+        amount = float(args[1])
+        if amount <= 0: raise ValueError
+    except ValueError:
+        await message.answer("❌ Количество должно быть положительным числом.")
+        return
+        
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country: return
+        
+        if country.intel_points < amount:
+            await message.answer(f"❌ Недостаточно Очков Агентуры (ОА). Доступно: {country.intel_points:.1f}")
+            return
+            
+        country.intel_points -= amount
+        country.counter_intel_points += amount
+        await session.commit()
+        await message.answer(f"✅ Переведено {amount:.1f} ОА в контрразведку. Теперь там {country.counter_intel_points:.1f} ОА.")
 
 @router.message(Command("countries"))
 async def cmd_countries(message: Message):
@@ -846,6 +944,21 @@ async def cmd_set_prod(message: Message):
         country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
         if not country: return
         
+        # -----------------------------
+        # УЯЗВИМОСТЬ: Проверка на изученность ядерной бомбы
+        # -----------------------------
+        if i_id == 21: # Ядерная бомба
+            completed = all([
+                getattr(country, 'nuclear_phase_1', 0) >= 100,
+                getattr(country, 'nuclear_phase_2', 0) >= 100,
+                getattr(country, 'nuclear_phase_3', 0) >= 100,
+                getattr(country, 'nuclear_phase_4', 0) >= 100,
+                getattr(country, 'nuclear_phase_5', 0) >= 100
+            ])
+            if not completed:
+                await message.answer("❌ Ошибка: Ядерная программа еще не изучена полностью!")
+                return
+        
         from database import CountryBuilding, CountryProduction
         cb = await session.scalar(select(CountryBuilding).where(
             CountryBuilding.country_id == country.id,
@@ -854,18 +967,68 @@ async def cmd_set_prod(message: Message):
         
         total_b = cb.total_count if cb else 0
         
-        # Считаем, сколько таких заводов уже занято
         all_prods = await session.scalars(select(CountryProduction).where(CountryProduction.country_id == country.id))
+        all_prods = list(all_prods)
+        
+        # Считаем, сколько таких заводов уже занято (как основных, так и вспомогательных)
         used_b = 0
         for cp in all_prods:
             c_item = next((i for i in cfg.items if i.item_id == cp.item_id), None)
-            if c_item and c_item.required_factory_id == b_id:
-                used_b += cp.assigned_factories
+            if c_item:
+                if c_item.required_factory_id == b_id:
+                    used_b += cp.assigned_factories
+                if getattr(c_item, 'secondary_factory_id', None) == b_id:
+                    used_b += cp.assigned_factories * getattr(c_item, 'secondary_factory_count', 1)
+                
+        # Если здание b_id - это лаборатория (6), нужно еще учесть те, что на исследованиях!
+        if b_id == 6:
+            used_in_research = (getattr(country, 'lab_assigned_phase_1', 0) + 
+                                getattr(country, 'lab_assigned_phase_2', 0) + 
+                                getattr(country, 'lab_assigned_phase_3', 0) + 
+                                getattr(country, 'lab_assigned_phase_4', 0) + 
+                                getattr(country, 'lab_assigned_phase_5', 0))
+            used_b += used_in_research
                 
         free_b = total_b - used_b
         if free_b < count:
             await message.answer(f"❌ Ошибка: Недостаточно свободных заводов (доступно: {free_b}).")
             return
+            
+        # -----------------------------
+        # УЯЗВИМОСТЬ: Проверка на вспомогательные заводы (например, 5 военных заводов для бомбы)
+        # -----------------------------
+        sec_b_id = getattr(item, 'secondary_factory_id', None)
+        if sec_b_id:
+            sec_count_needed = count * getattr(item, 'secondary_factory_count', 1)
+            
+            cb_sec = await session.scalar(select(CountryBuilding).where(
+                CountryBuilding.country_id == country.id,
+                CountryBuilding.building_id == sec_b_id
+            ))
+            total_sec_b = cb_sec.total_count if cb_sec else 0
+            
+            used_sec_b = 0
+            for cp in all_prods:
+                c_item = next((i for i in cfg.items if i.item_id == cp.item_id), None)
+                if c_item:
+                    if c_item.required_factory_id == sec_b_id:
+                        used_sec_b += cp.assigned_factories
+                    if getattr(c_item, 'secondary_factory_id', None) == sec_b_id:
+                        used_sec_b += cp.assigned_factories * getattr(c_item, 'secondary_factory_count', 1)
+            
+            # Если sec_b_id - лаборатория, учитываем исследования
+            if sec_b_id == 6:
+                used_in_research = (getattr(country, 'lab_assigned_phase_1', 0) + 
+                                    getattr(country, 'lab_assigned_phase_2', 0) + 
+                                    getattr(country, 'lab_assigned_phase_3', 0) + 
+                                    getattr(country, 'lab_assigned_phase_4', 0) + 
+                                    getattr(country, 'lab_assigned_phase_5', 0))
+                used_sec_b += used_in_research
+            
+            free_sec_b = total_sec_b - used_sec_b
+            if free_sec_b < sec_count_needed:
+                await message.answer(f"❌ Ошибка: Недостаточно вспомогательных заводов (ID {sec_b_id}). Нужно: {sec_count_needed}, свободно: {free_sec_b}.")
+                return
             
         cp = await session.scalar(select(CountryProduction).where(
             CountryProduction.country_id == country.id,
@@ -879,7 +1042,9 @@ async def cmd_set_prod(message: Message):
             session.add(cp)
             
         await session.commit()
-        await message.answer(f"✅ Назначено {count} заводов на производство: **{item.name}**.", parse_mode="Markdown")
+        
+        sec_msg = f" (и {sec_count_needed} вспомог. заводов)" if sec_b_id else ""
+        await message.answer(f"✅ Успешно назначено {count} заводов{sec_msg} на линию ID {i_id}.")
 
 @router.message(Command("unset_prod"))
 async def cmd_unset_prod(message: Message):
@@ -1014,16 +1179,31 @@ async def cmd_next_turn(message: Message, bot: Bot):
             if country.martial_law:
                 tax_income *= 0.7 # штраф -30%
                 
-            # Доход от фабрик (id=5)
-            factory_buildings = await session.scalar(
-                select(CountryBuilding.total_count)
-                .where(CountryBuilding.country_id == country.id, CountryBuilding.building_id == 5)
-            )
-            factory_count = factory_buildings if factory_buildings else 0
-            used_for_gen = getattr(country, 'factories_assigned_to_generator', 0) if getattr(cfg.game_settings, 'frostpunk_event', False) else 0
-            free_factories = max(0, factory_count - used_for_gen)
-            factory_income = free_factories * 0.3 # 0.3 B$ per free factory
+            # Доход от всех зданий, учитывая генератор
+            factory_income = 0.0
             
+            used_for_gen = 0
+            if getattr(cfg.game_settings, 'frostpunk_event', False):
+                from database import CountryProduction
+                gen_prod = await session.scalar(
+                    select(CountryProduction)
+                    .where(CountryProduction.country_id == country.id, CountryProduction.item_id == 45)
+                )
+                if gen_prod:
+                    used_for_gen = gen_prod.assigned_factories
+                    
+            from database import CountryBuilding
+            buildings = await session.scalars(select(CountryBuilding).where(CountryBuilding.country_id == country.id))
+            
+            for b in buildings:
+                b_cfg = next((x for x in cfg.buildings if x.building_id == b.building_id), None)
+                if b_cfg and getattr(b_cfg, 'income_billion', 0.0) > 0:
+                    if b.building_id == 5:
+                        free_factories = max(0, b.total_count - used_for_gen)
+                        factory_income += free_factories * b_cfg.income_billion
+                    else:
+                        factory_income += b.total_count * b_cfg.income_billion
+                        
             tax_income += factory_income
                 
             upkeep = country.military * cfg.game_settings.military_upkeep_per_soldier_billion
@@ -1051,19 +1231,45 @@ async def cmd_next_turn(message: Message, bot: Bot):
                     else:
                         cs.amount += produced
 
+            
+            # 7. Ядерная программа
+            for phase in range(1, 6):
+                lab_col = f"lab_assigned_phase_{phase}"
+                prog_col = f"nuclear_phase_{phase}"
+                assigned = getattr(country, lab_col, 0)
+                current_prog = getattr(country, prog_col, 0)
+                
+                if assigned > 0 and current_prog < 100:
+                    # Пусть 1 лаборатория дает 10% за ход
+                    new_prog = current_prog + (assigned * 10.0)
+                    if new_prog > 100: new_prog = 100.0
+                    setattr(country, prog_col, new_prog)
+                    
+                    if new_prog >= 100 and current_prog < 100:
+                        setattr(country, lab_col, 0) # Автоматически снимаем лаборатории после завершения
+
+            # Prepare frostpunk report
+            frostpunk_report = ""
+            if getattr(cfg.game_settings, "frostpunk_event", False):
+                frostpunk_report = f"\n❄️ Замерзающих: {unheated_pop:,} чел."
+            
             try:
                 msg = (
-                    f"◆ Новый Ход! (Год {current_year})\n"
-                    f"------------------------------------\n"
-                    f"• Доход (Налоги + Фабрики): +{tax_income:.2f} B$\n"
-                    f"• Содержание армии: -{upkeep:.2f} B$\n"
-                    f"• Прирост населения: +{growth:,} чел.\n"
-                    f"• Очки агентуры (ОА): +{spy_count * 10.0} ОА\n"
-                    f"• Текущая казна: {country.treasury:.2f} B$"
-                    f"{frostpunk_report}"
+                    f"🗓 <b>Новый Ход! (Год {current_year})</b>\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"💰 <b>Финансы:</b>\n"
+                    f" ➕ Доход: +{tax_income:.2f} B$\n"
+                    f" ➖ Содержание армии: -{upkeep:.2f} B$\n"
+                    f" 🏦 Итого в казне: {country.treasury:.2f} B$\n\n"
+                    f"👥 <b>Демография:</b>\n"
+                    f" 📈 Прирост населения: {'+' if growth >= 0 else ''}{growth:,} чел.{frostpunk_report}\n\n"
+                    f"🕵️‍♂️ <b>Спецслужбы:</b>\n"
+                    f" ➕ Получено ОА: +{spy_count * 10.0} ОА"
                 )
-                await bot.send_message(country.owner_id, msg)
-            except Exception:
+                await bot.send_message(country.owner_id, msg, parse_mode="HTML")
+            except Exception as e:
+                import logging
+                logging.error(f"Failed to send turn message to {country.owner_id}: {e}")
                 pass
                 
         await session.commit()
@@ -1201,32 +1407,84 @@ async def cmd_add_stat(message: Message):
 
 @router.message(Command("guide"))
 async def cmd_guide(message: Message):
+    from keyboards import get_guide_main_keyboard
+    from engine import get_config
+    cfg = get_config()
+    show_events = getattr(cfg.game_settings, "frostpunk_event", False)
+    
     text = (
-        "◆ Руководство для новичков\n"
+        "◆ Руководство по механикам ВПИ\n"
         "------------------------------------\n"
-        "Добро пожаловать в бота управления страной ВПИ!\n\n"
-        "📝 <b>Пример анкеты при регистрации:</b>\n"
-        "• Название страны: <i>Германская Империя</i>\n"
-        "• Идеология: <i>Монархия</i>\n"
-        "• Правитель: <i>Вильгельм II</i>\n"
-        "• Правящая партия: <i>Консервативная партия</i>\n\n"
-        "⚙️ <b>С чего начать игру?</b>\n"
-        "1. Проверьте состояние экономики с помощью /profile.\n"
-        "2. Постройте первые заводы, используя /buildings и /build.\n"
-        "3. Назначьте производство техники через /production и /set_prod.\n"
-        "4. Чтобы нанять армию, используйте команду /army.\n\n"
+        "Добро пожаловать в бота управления страной!\n\n"
+        "📝 <b>Регистрация:</b> Название, Идеология, Правитель, Партия.\n\n"
+        "🏛 <b>Экономика и Налоги (/profile)</b>\n"
+        "• Казна в <b>B$</b>. Налоги поступают каждый ход от населения.\n"
+        "• <b>Инфляция:</b> массовое строительство перегревает экономику, снижая доход.\n\n"
+        "🏭 <b>ВПК и Строительство (/buildings, /build)</b>\n"
+        "• Заводы приносят пассивный доход и дают мощности.\n"
+        "• Нормы производства смотрите через <code>/rate</code>.\n"
+        "• <code>/set_prod</code> назначает заводы на выпуск вооружения.\n"
+        "• Ненужную технику можно разобрать (<code>/util</code>).\n\n"
+        "🪖 <b>Армия (/army)</b>\n"
+        "• Нанимайте солдат. Отрицательный баланс приводит к дезертирству!\n\n"
+        "🕵️ <b>Шпионаж (/spy) и Торговля (/trade)</b>\n"
+        "• <b>Контрразведка:</b> Агентурные сети пассивно генерируют Очки Разведки (ОА), которые автоматически защищают страну от диверсий врага.\n"
+        "• Через торговлю можно передавать технику и деньги союзникам.\n\n"
+        "☢️ <b>Ядерная программа (/nuclear)</b>\n"
+        "• Для производства бомб нужна <b>1 Лаборатория</b> и <b>5 Военных заводов</b>.\n"
+        "• Сначала исследуйте все этапы проекта, назначив заводы (<code>/lab_assign</code>), и только после этого можно производить само оружие.\n\n"
+        "⚠️ <i>Каждый ход администратор начисляет налоги и завершает строительство.</i>"
+    )
+    await message.answer(text, reply_markup=get_guide_main_keyboard(show_events), parse_mode="HTML")
+
+@router.callback_query(F.data == "guide_main")
+async def guide_main_cb(callback: CallbackQuery):
+    from keyboards import get_guide_main_keyboard
+    from engine import get_config
+    cfg = get_config()
+    show_events = getattr(cfg.game_settings, "frostpunk_event", False)
+    
+    text = (
+        "◆ Руководство по механикам ВПИ\n"
+        "------------------------------------\n"
+        "Добро пожаловать в бота управления страной!\n\n"
+        "📝 <b>Регистрация:</b> Название, Идеология, Правитель, Партия.\n\n"
+        "🏛 <b>Экономика и Налоги (/profile)</b>\n"
+        "• Казна в <b>B$</b>. Налоги поступают каждый ход от населения.\n"
+        "• <b>Инфляция:</b> массовое строительство перегревает экономику, снижая доход.\n\n"
+        "🏭 <b>ВПК и Строительство (/buildings, /build)</b>\n"
+        "• Заводы приносят пассивный доход и дают мощности.\n"
+        "• Нормы производства смотрите через <code>/rate</code>.\n"
+        "• <code>/set_prod</code> назначает заводы на выпуск вооружения.\n"
+        "• Ненужную технику можно разобрать (<code>/util</code>).\n\n"
+        "🪖 <b>Армия (/army)</b>\n"
+        "• Нанимайте солдат. Отрицательный баланс приводит к дезертирству!\n\n"
+        "🕵️ <b>Шпионаж (/spy) и Торговля (/trade)</b>\n"
+        "• <b>Контрразведка:</b> Агентурные сети пассивно генерируют Очки Разведки (ОА), которые автоматически защищают страну от диверсий врага.\n"
+        "• Через торговлю можно передавать технику и деньги союзникам.\n\n"
+        "☢️ <b>Ядерная программа (/nuclear)</b>\n"
+        "• Для производства бомб нужна <b>1 Лаборатория</b> и <b>5 Военных заводов</b>.\n"
+        "• Сначала исследуйте все этапы проекта, назначив заводы (<code>/lab_assign</code>), и только после этого можно производить само оружие.\n\n"
+        "⚠️ <i>Каждый ход администратор начисляет налоги и завершает строительство.</i>"
+    )
+    await callback.message.edit_text(text, reply_markup=get_guide_main_keyboard(show_events), parse_mode="HTML")
+
+
+@router.callback_query(F.data == "guide_events")
+async def guide_events_cb(callback: CallbackQuery):
+    from keyboards import get_guide_events_keyboard
+    text = (
         "❄️ <b>Временный ивент: Frostpunk</b>\n"
-        "• В мире наступило похолодание! Люди без тепла замерзают, снижая стабильность.\n"
+        "------------------------------------\n"
+        "В мире наступило похолодание! Люди без тепла замерзают, что сильно снижает стабильность.\n\n"
+        "<b>Как выжить:</b>\n"
         "• Введите команду <code>/generator</code> для управления Генератором.\n"
         "• Назначайте свободные Гражданские фабрики для производства деталей Генератора.\n"
-        "• <b>Мощность</b> повышает бонус к рождаемости.\n"
-        "• <b>Радиус</b> увеличивает вместимость, спасая больше людей от морозов.\n\n"
-        "⚠️ Следите за казной (B$) и инфляцией! Слишком много строительства за один ход перегреет экономику.\n"
-        "Каждый ход (выполняется админом) вы получаете налоги и платите за содержание армии."
+        "• <b>Мощность</b> генератора дает пассивный бонус к рождаемости.\n"
+        "• <b>Радиус</b> увеличивает вместимость, спасая больше людей от морозов (дает стабильность).\n\n"
+        "<i>Следите за обновлениями ивента, чтобы не дать своей стране замерзнуть!</i>"
     )
-    await message.answer(text, parse_mode="HTML")
-
-
+    await callback.message.edit_text(text, reply_markup=get_guide_events_keyboard(), parse_mode="HTML")
 
 @router.message(Command("add_gen"))
 async def cmd_add_gen(message: Message):
@@ -1256,3 +1514,176 @@ async def cmd_add_gen(message: Message):
         country.generators_built = getattr(country, 'generators_built', 0) + amount
         await session.commit()
         await message.answer(f"✅ Стране {country.name} выдано {amount} генераторов. Всего: {country.generators_built}")
+
+@router.message(Command("toggle_frostpunk"))
+async def cmd_toggle_frostpunk(message: Message):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("❌ Нет прав.")
+            return
+
+    # Update config.json directly
+    import json
+    import os
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg_data = json.load(f)
+        
+        current_val = cfg_data.get("game_settings", {}).get("frostpunk_event", False)
+        new_val = not current_val
+        cfg_data["game_settings"]["frostpunk_event"] = new_val
+        
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg_data, f, indent=2, ensure_ascii=False)
+            
+        status = "ВКЛЮЧЕН" if new_val else "ВЫКЛЮЧЕН"
+        await message.answer(f"✅ Ивент Фростпанк {status}!")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка обновления конфига: {e}")
+
+@router.message(Command("toggle_frostpunk"))
+async def cmd_toggle_frostpunk(message: Message):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("❌ Нет прав.")
+            return
+
+    # Update config.json directly
+    import json
+    import os
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg_data = json.load(f)
+        
+        current_val = cfg_data.get("game_settings", {}).get("frostpunk_event", False)
+        new_val = not current_val
+        cfg_data["game_settings"]["frostpunk_event"] = new_val
+        
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg_data, f, indent=2, ensure_ascii=False)
+            
+        status = "ВКЛЮЧЕН" if new_val else "ВЫКЛЮЧЕН"
+        await message.answer(f"✅ Ивент Фростпанк {status}!")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка обновления конфига: {e}")
+
+@router.message(Command("world_stat"))
+async def cmd_world_stat(message: Message):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("❌ Нет прав.")
+            return
+            
+        args = message.text.split()
+        if len(args) != 3:
+            await message.answer(
+                "Использование: `/world_stat [параметр] [значение]`\nПример: `/world_stat stability 50` (УСТАНОВИТ 50 стабильности всем странам)\nПараметры: treasury, taxpayers, military, stability, war_support, inflation, intel_points, area, growth_modifier",
+                parse_mode="Markdown"
+            )
+            return
+            
+        param = args[1]
+        try:
+            val = float(args[2])
+        except ValueError:
+            await message.answer("❌ Значение должно быть числом.")
+            return
+
+        countries = await session.scalars(select(Country))
+        count = 0
+        success_param = False
+        
+        for country in countries:
+            if hasattr(country, param):
+                success_param = True
+                col_type = type(getattr(country, param))
+                if col_type == int:
+                    setattr(country, param, int(val))
+                elif col_type == float:
+                    setattr(country, param, float(val))
+                count += 1
+        
+        if success_param:
+            await session.commit()
+            await message.answer(f"✅ Параметр {param} жестко установлен на {val} для всех стран (обработано {count} стран).")
+        else:
+            await message.answer(f"❌ Не удалось применить. Параметра {param} не существует.")
+
+@router.message(Command("world_event"))
+async def cmd_world_event(message: Message, bot: Bot):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("❌ Нет прав.")
+            return
+            
+        args = message.text.split(maxsplit=3)
+        if len(args) < 3:
+            await message.answer(
+                "Использование: `/world_event [параметр] [значение] [Текст (необязательно)]`\n"
+                "Пример: `/world_event stability -10 Наступила великая депрессия!`", 
+                parse_mode="Markdown"
+            )
+            return
+            
+        param = args[1]
+        try:
+            val = float(args[2])
+        except ValueError:
+            await message.answer("❌ Значение должно быть числом.")
+            return
+            
+        event_text = args[3] if len(args) > 3 else ""
+
+        countries = await session.scalars(select(Country))
+        count = 0
+        success_param = False
+        
+        for country in countries:
+            if hasattr(country, param):
+                success_param = True
+                col_type = type(getattr(country, param))
+                current_val = getattr(country, param)
+                if col_type == int:
+                    setattr(country, param, current_val + int(val))
+                elif col_type == float:
+                    setattr(country, param, current_val + float(val))
+                count += 1
+        
+        if success_param:
+            await session.commit()
+            await message.answer(f"✅ Параметр {param} изменен на {val} (прибавлено/отнято) для всех стран (обработано {count} стран).")
+            
+            if event_text:
+                from engine import get_config
+                cfg = get_config()
+                event_msg = f"🌍 <b>ГЛОБАЛЬНОЕ СОБЫТИЕ</b>\n------------------------------------\n{event_text}"
+                
+                if cfg.game_settings.public_chat_id:
+                    try:
+                        await bot.send_message(
+                            chat_id=cfg.game_settings.public_chat_id, 
+                            text=event_msg, 
+                            message_thread_id=cfg.game_settings.public_chat_thread_id,
+                            parse_mode="HTML"
+                        )
+                        await message.answer("✅ Уведомление о событии отправлено в публичный чат.")
+                    except Exception as e:
+                        await message.answer(f"❌ Ошибка отправки в публичный чат: {e}")
+                else:
+                    countries = await session.scalars(select(Country))
+                    notified_count = 0
+                    for c in countries:
+                        try:
+                            await bot.send_message(c.owner_id, event_msg, parse_mode="HTML")
+                            notified_count += 1
+                        except:
+                            pass
+                    await message.answer(f"✅ Уведомление разослано {notified_count} правителям в ЛС (публичный чат не настроен).")
+        else:
+            await message.answer(f"❌ Не удалось применить. Параметра {param} не существует.")

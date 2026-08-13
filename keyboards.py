@@ -55,3 +55,16 @@ def get_frostpunk_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📡 Улучшить радиус", callback_data="fp_upgrade_radius")]
         ]
     )
+
+def get_guide_main_keyboard(show_events: bool = False) -> InlineKeyboardMarkup:
+    kb = []
+    if show_events:
+        kb.append([InlineKeyboardButton(text="❄️ Временные ивенты", callback_data="guide_events")])
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def get_guide_events_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="guide_main")]
+        ]
+    )
