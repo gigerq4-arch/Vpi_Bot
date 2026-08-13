@@ -221,8 +221,9 @@ async def cmd_help(message: Message):
             "• /next_turn — Завершить ход (расчет экономики)\n"
             "• /set_stat [ID страны] [параметр] [значение] — Изменить статы\n"
             "• /remove_equip [ID страны] [ID техники] [кол-во] — Изъять технику\n"
-            "• /add_stat [ID страны] [параметр] [значение] — Добавить статы (можно минус)\n"
-            "• /world_event [параметр] [значение] [сообщение] — Мировое событие (изменение у всех)\n"
+            "• /add_stat [ID страны] [параметр] [значение] — Изменить статы (напр. growth_modifier 0.05)\n"
+            "• /world_event [параметр] [значение] [сообщение] — Ивент для всех (ПРИБАВЛЯЕТ значение)\n"            "• /set_world_stat [параметр] [значение] — УСТАНАВЛИВАЕТ точное значение всем странам\n"
+            "• /toggle_frostpunk — Включить/выключить ивент Фростпанк\n"
             "  *Параметры: treasury (казна), taxpayers (население), military (армия),\n"
             "  stability, war_support, inflation, intel_points, area*\n"
         )
@@ -244,8 +245,23 @@ async def cmd_profile(message: Message):
         pop_str = f"{total_population / 1_000_000:.2f} млн"
         taxpayers_str = f"{country.taxpayers / 1_000_000:.2f} млн"
         
-        pop_growth = cfg.game_settings.base_population_growth * 100
+        base_mod = cfg.game_settings.base_population_growth + getattr(country, "growth_modifier", 0.0)
+        pop_growth_str = f"{base_mod:.2f}%"
         
+        if getattr(cfg.game_settings, "frostpunk_event", False):
+            from database import CountryStockpile
+            gen_stock = await session.scalar(
+                select(CountryStockpile.amount)
+                .where(CountryStockpile.country_id == country.id, CountryStockpile.item_id == 45)
+            )
+            gen_count = gen_stock if gen_stock else 0
+            heated_pop = min(country.taxpayers, int(gen_count * 2_000_000))
+            if heated_pop > 0:
+                pop_growth_str += f" (+0.2% для {heated_pop/1000000:.1f} млн в тепле)"
+            unheated_pop = max(0, country.taxpayers - heated_pop)
+            if unheated_pop > 0:
+                pop_growth_str += f" ❄️ {unheated_pop/1000000:.1f} млн мерзнут"
+                
         tax_income = country.taxpayers * cfg.game_settings.tax_per_taxpayer_billion
         military_upkeep = country.military * cfg.game_settings.military_upkeep_per_soldier_billion
         
@@ -256,12 +272,25 @@ async def cmd_profile(message: Message):
         factory_income = 0.0
         agencies = 0
         
+        from database import CountryProduction
+        productions = await session.scalars(select(CountryProduction).where(CountryProduction.country_id == country.id))
+        
+        generators_factories = 0
+        for p in productions:
+            if p.item_id == 45:
+                generators_factories += p.assigned_factories
+                
         for b in buildings:
             b_cfg = next((x for x in cfg.buildings if x.building_id == b.building_id), None)
             if b_cfg:
                 if getattr(b_cfg, 'income_billion', 0.0) > 0:
                     total_factories += b.total_count
-                    factory_income += b.total_count * b_cfg.income_billion
+                    
+                    active_factories = b.total_count
+                    if b.building_id == 5:
+                        active_factories = max(0, active_factories - generators_factories)
+                        
+                    factory_income += active_factories * b_cfg.income_billion
                 if getattr(b_cfg, 'name', '') == 'Агентура':
                     agencies += b.total_count
         
@@ -273,7 +302,7 @@ async def cmd_profile(message: Message):
             f"👥 Население: {pop_str}\n"
             f"👥 Налогоплательщики: {taxpayers_str} (без учета армии)\n"
             f"🏦 Казна: {country.treasury:.2f} B$\n"
-            f"📈 Рост населения: {pop_growth:.2f}%\n"
+            f"📈 Рост населения: {pop_growth_str}\n"
             f"💵 Доход с населения: {tax_income:.2f} B$\n"
         )
         
@@ -1146,7 +1175,7 @@ async def cmd_build(message: Message):
         )
 
 @router.message(Command("set_prod"))
-async def cmd_set_prod(message: Message):
+async def cmd_set_prod(message: Message, bot: Bot):
     # /set_prod [item_id] [building_id] [count]
     args = message.text.split()
     if len(args) != 4:
@@ -1251,6 +1280,16 @@ async def cmd_set_prod(message: Message):
             
         await session.commit()
         await message.answer(f"✅ Назначено {count} заводов на производство: **{item.name}**.", parse_mode="Markdown")
+        
+        # Аудит лог
+        admin_chat = cfg.game_settings.admin_chat_id
+        if admin_chat and admin_chat != 0:
+            try:
+                await bot.send_message(admin_chat, f"🛠 **ЛОГ ПРОИЗВОДСТВА**\nИгрок {message.from_user.full_name} (@{message.from_user.username}) [ID: {country.id} - {country.name}] назначил {count} заводов на производство: **{item.name}**.", parse_mode="Markdown")
+            except Exception as e:
+                import logging
+                logging.error(f"Audit log failed: {e}")
+
 
 @router.message(Command("unset_prod"))
 async def cmd_unset_prod(message: Message):
@@ -1300,6 +1339,31 @@ async def cmd_unset_prod(message: Message):
         await session.commit()
         await message.answer(f"✅ Снято {remove_count} заводов с линии ID {i_id}.")
 
+
+@router.message(Command("toggle_frostpunk"))
+async def cmd_toggle_frostpunk(message: Message):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("Ошибка: Эта команда доступна только Root-администратору.")
+            return
+            
+        import json
+        import os
+        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            
+        current_state = data.get("game_settings", {}).get("frostpunk_event", False)
+        new_state = not current_state
+        data["game_settings"]["frostpunk_event"] = new_state
+        
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            
+        status = "ВКЛЮЧЕН" if new_state else "ВЫКЛЮЧЕН"
+        await message.answer(f"❄️ Ивент Фростпанк успешно **{status}**.", parse_mode="Markdown")
+
 @router.message(Command("toggle_nuclear"))
 async def cmd_toggle_nuclear(message: Message):
     async with async_session() as session:
@@ -1330,6 +1394,49 @@ async def cmd_toggle_nuclear(message: Message):
 
     status = "ВКЛЮЧЕНА" if new_state else "ОТКЛЮЧЕНА"
     await message.answer(f"✅ Ядерная программа (и строительство лабораторий) успешно **{status}**.", parse_mode="Markdown")
+
+
+@router.message(Command("add_bonus"))
+async def cmd_add_bonus(message: Message):
+    from database import CountryEvent
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("Ошибка: Эта команда доступна только Root-администратору.")
+            return
+            
+        args = message.text.split(maxsplit=6)
+        if len(args) < 6:
+            await message.answer("Использование: /add_bonus <ID_страны> <Налог_%> <Стабильность_%> <Поддержка_войны_%> <Ходов> <Описание>\nПример: /add_bonus 1 10 0 0 5 Экономический бум")
+            return
+            
+        try:
+            country_id = int(args[1])
+            tax_mod = float(args[2])
+            stab_mod = float(args[3])
+            war_mod = float(args[4])
+            turns = int(args[5])
+            desc = args[6]
+        except ValueError:
+            await message.answer("Ошибка: Неверный формат чисел.")
+            return
+            
+        country = await session.scalar(select(Country).where(Country.id == country_id))
+        if not country:
+            await message.answer(f"Страна с ID {country_id} не найдена.")
+            return
+            
+        event = CountryEvent(
+            country_id=country_id,
+            description=desc,
+            tax_modifier=tax_mod,
+            stability_modifier=stab_mod,
+            war_support_modifier=war_mod,
+            turns_left=turns
+        )
+        session.add(event)
+        await session.commit()
+        await message.answer(f"✅ Бонус '{desc}' успешно добавлен стране {country.name} на {turns} ходов.")
 
 @router.message(Command("next_turn"))
 async def cmd_next_turn(message: Message, bot: Bot):
@@ -1375,8 +1482,34 @@ async def cmd_next_turn(message: Message, bot: Bot):
                 country.taxpayers -= mob_amount
                 country.military += mob_amount
                 
-            # 4. Естественный прирост
-            growth = int(country.taxpayers * cfg.game_settings.base_population_growth)
+            # 4. Естественный прирост (опциональный ивент Фростпанка)
+            base_mod = (cfg.game_settings.base_population_growth + getattr(country, "growth_modifier", 0.0)) / 100.0
+            
+            if getattr(cfg.game_settings, "frostpunk_event", False):
+                from database import CountryStockpile
+                gen_stock = await session.scalar(
+                    select(CountryStockpile.amount)
+                    .where(CountryStockpile.country_id == country.id, CountryStockpile.item_id == 45)
+                )
+                gen_count = gen_stock if gen_stock else 0
+                
+                heated_pop = min(country.taxpayers, int(gen_count * 2_000_000))
+                unheated_pop = max(0, country.taxpayers - heated_pop)
+                
+                if unheated_pop > 0:
+                    stability_drop = (unheated_pop / 1_000_000.0) * 1.0 # -1 стабильности за каждый 1 млн замерзающих
+                    country.stability -= stability_drop
+                    if country.stability < 0:
+                        country.stability = 0
+                
+                # generator bonus = +0.2% -> 0.002
+                heated_growth = int(heated_pop * (base_mod + 0.002))
+                unheated_growth = int(unheated_pop * base_mod)
+                
+                growth = heated_growth + unheated_growth
+            else:
+                growth = int(country.taxpayers * base_mod)
+                
             country.taxpayers += growth
             
             # 5. Финансы
@@ -1384,13 +1517,51 @@ async def cmd_next_turn(message: Message, bot: Bot):
             if country.martial_law:
                 tax_income *= 0.5 # штраф -50% (было 30%)
                 
+            # Применение ивентов
+            from database import CountryEvent
+            events = await session.scalars(select(CountryEvent).where(CountryEvent.country_id == country.id))
+            
+            total_tax_mod = 0.0
+            
+            for ev in events:
+                if ev.turns_left > 0:
+                    total_tax_mod += ev.tax_modifier
+                    country.stability += ev.stability_modifier
+                    country.war_support += ev.war_support_modifier
+                    
+                    if country.stability > cfg.game_settings.max_sum_stability_war_support:
+                        country.stability = cfg.game_settings.max_sum_stability_war_support
+                    if country.war_support > cfg.game_settings.max_sum_stability_war_support:
+                        country.war_support = cfg.game_settings.max_sum_stability_war_support
+                        
+                    ev.turns_left -= 1
+                
+                if ev.turns_left <= 0:
+                    await session.delete(ev)
+                    
+            if total_tax_mod != 0.0:
+                tax_income = tax_income * (1.0 + (total_tax_mod / 100.0))
+                
             # Доход от фабрик (id=5)
             factory_buildings = await session.scalar(
                 select(CountryBuilding.total_count)
                 .where(CountryBuilding.country_id == country.id, CountryBuilding.building_id == 5)
             )
             factory_count = factory_buildings if factory_buildings else 0
-            factory_income = factory_count * 0.3 # 0.3 B$ per factory
+            
+            from database import CountryProduction
+            generator_production = await session.scalar(
+                select(CountryProduction.assigned_factories)
+                .where(CountryProduction.country_id == country.id, CountryProduction.item_id == 45)
+            )
+            gen_factories = generator_production if generator_production else 0
+            
+            active_factories = max(0, factory_count - gen_factories)
+            
+            b_cfg = next((x for x in cfg.buildings if x.building_id == 5), None)
+            income_per_factory = getattr(b_cfg, 'income_billion', 0.3) if b_cfg else 0.3
+            
+            factory_income = active_factories * income_per_factory
             
             tax_income += factory_income
                 
@@ -1439,7 +1610,7 @@ async def cmd_next_turn(message: Message, bot: Bot):
                     f"------------------------------------\n"
                     f"• Доход (Налоги + Фабрики): +{tax_income:.2f} B$\n"
                     f"• Содержание армии: -{upkeep:.2f} B$\n"
-                    f"• Прирост населения: +{growth:,} чел.\n"
+                    f"• Прирост/Убыль населения: {growth:+,} чел.\n"
                     f"• Очки агентуры (ОА): +{spy_count * 10.0} ОА\n"
                     f"• Текущая казна: {country.treasury:.2f} B$"
                 )
@@ -1627,6 +1798,40 @@ async def cmd_add_stat(message: Message):
         except Exception as e:
             await message.answer(f"Непредвиденная ошибка: {e}")
 
+
+@router.message(Command("set_world_stat"))
+async def cmd_set_world_stat(message: Message):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            return
+            
+        args = message.text.split()
+        if len(args) != 3:
+            await message.answer("Использование: `/set_world_stat [параметр] [значение]`\nУстанавливает точное значение параметра для всех стран.", parse_mode="Markdown")
+            return
+            
+        param = args[1]
+        val_str = args[2]
+        
+        countries = await session.scalars(select(Country))
+        updated = 0
+        for country in countries:
+            if hasattr(country, param):
+                col_type = type(getattr(country, param))
+                try:
+                    if col_type == int:
+                        setattr(country, param, int(float(val_str)))
+                    elif col_type == float:
+                        setattr(country, param, float(val_str))
+                    else:
+                        continue
+                    updated += 1
+                except:
+                    pass
+        await session.commit()
+        await message.answer(f"✅ Параметр {param} установлен в {val_str} для {updated} стран.")
+
 @router.message(Command("world_event"))
 async def cmd_world_event(message: Message, bot: Bot):
     # /world_event [параметр] [значение] [описание...]
@@ -1685,6 +1890,7 @@ async def cmd_world_event(message: Message, bot: Bot):
             await message.answer(f"✅ Мировое событие применено к {updated_count} странам (изменен параметр {param}).")
         else:
             await message.answer("❌ Ошибка: Неверный параметр или параметр не является числовым.")
+
 
 @router.message(Command("guide"))
 async def cmd_guide(message: Message):

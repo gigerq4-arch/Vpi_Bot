@@ -64,7 +64,7 @@ async def cmd_nuclear(message: Message):
             f"5. Корпус: {country.nuclear_phase_5:.1f}% (Лаб: {country.lab_assigned_phase_5})\n\n"
             "Управление лабораториями:\n"
             "`/lab_assign [этап 1-5] [кол-во]` - назначить лаб.\n"
-            "`/lab_remove [этап 1-5] [кол-во]` - снять лаб.\n\n"\
+            "`/lab_remove [этап 1-5] [кол-во]` - снять лаб.\n\n"
             "⚠️ *Для производства 1 ядерной бомбы требуется 1 лаборатория и 5 военных заводов.*"
         )
         await message.answer(text, parse_mode="Markdown")

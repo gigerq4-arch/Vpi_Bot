@@ -46,12 +46,12 @@ def get_spy_operations_keyboard(target_id: int, inflation: float = 0.0) -> Inlin
     builder.adjust(1)
     return builder.as_markup()
 
-def get_reform_confirm_keyboard(amount: float) -> InlineKeyboardMarkup:
+
+def get_frostpunk_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"reform_yes_{amount}"),
-                InlineKeyboardButton(text="❌ Отмена", callback_data="reform_no")
-            ]
+            [InlineKeyboardButton(text="🏭 Назначить заводы на Генератор", callback_data="fp_assign_gen")],
+            [InlineKeyboardButton(text="🔥 Улучшить мощность", callback_data="fp_upgrade_power")],
+            [InlineKeyboardButton(text="📡 Улучшить радиус", callback_data="fp_upgrade_radius")]
         ]
     )
