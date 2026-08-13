@@ -5,11 +5,56 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from sqlalchemy import select
 
-from database import async_session, User, Country, RoleEnum
+from database import async_session, User, Country, RoleEnum, ExpansionRequest, GameState, CountryStockpile
+import random
 from keyboards import get_start_keyboard, get_moderation_keyboard, get_army_keyboard
 from engine import get_config
 
 router = Router()
+
+import time
+
+@router.message(Command("ping"))
+async def cmd_ping(message: Message):
+    start = time.perf_counter()
+    msg = await message.answer("🏓 Pinging...")
+    end = time.perf_counter()
+    ping_ms = (end - start) * 1000
+    await msg.edit_text(f"🏓 **Pong!**\nПинг: `{ping_ms:.2f} мс`\nБот работает стабильно.", parse_mode="Markdown")
+
+
+
+@router.message(Command("set_status_chat"))
+async def cmd_set_status_chat(message: Message):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("Ошибка: Эта команда доступна только Root-администратору.")
+            return
+            
+    import json
+    import os
+    
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    cfg_path = os.path.join(base_dir, 'config.json')
+    with open(cfg_path, 'r', encoding='utf-8') as f:
+
+        config_data = json.load(f)
+        
+    config_data['game_settings']['public_chat_id'] = message.chat.id
+    config_data['game_settings']['public_chat_thread_id'] = message.message_thread_id or 0
+    
+    with open(cfg_path, 'w', encoding='utf-8') as f:
+        json.dump(config_data, f, ensure_ascii=False, indent=2)
+        
+    # Remove old status message ID so it creates a new one here
+    
+    status_file = os.path.join(base_dir, "status_msg.json")
+    if os.path.exists(status_file):
+
+        os.remove(status_file)
+        
+    await message.answer(f"✅ Чат для статуса бота установлен на этот чат (ID: {message.chat.id}, Тема: {message.message_thread_id or 0}).\nПерезапустите бота, чтобы появилось сообщение.")
 
 class Registration(StatesGroup):
     name = State()
@@ -147,16 +192,22 @@ async def cmd_help(message: Message):
         "------------------------------------\n"
         "• /start — Главное меню\n"
         "• /help — Список команд\n"
+        "• /ping — Проверить отклик бота\n"
         "• /guide — Руководство для новичков\n"
         "• /profile — Статистика и экономика страны\n"
         "• /army — Управление армией (найм, демобилизация)\n"
-        "• /buildings — Список доступных для постройки зданий\n"        "• /generator — Управление Генератором (ивент Frostpunk)\n"
+        "• /buildings — Список доступных для постройки зданий\n"
         "• /build [ID здания] [Кол-во] — Построить здания\n"
         "• /production — Просмотр состояния ВПК и складов\n"
+        "• /rate — Просмотр производства за ход (без складов)\n"
         "• /set_prod [ID техники] [ID завода] [Кол-во] — Назначить заводы\n"
         "• /unset_prod [ID техники] [Кол-во|all] — Снять заводы с производства\n"
+        "• /nuclear — Меню ядерной программы\n"
+        "• /expand — Рандомайзер событий при расширении территорий\n"
         "• /util [ID техники] [Кол-во] — Утилизация техники\n"
-        "• /spy [ID цели] [Тип операции] — Шпионаж и диверсии\n"
+        "• /reform [сумма] [описание] — Выделить деньги на реформы\n"
+        "• /spy — Разведка и диверсии\n"
+        "• /counter_intel [кол-во] — Перевод ОА в контрразведку (защиту от шпионов)\n"
         "• /trade — Торговля\n"
     )
     
@@ -169,7 +220,9 @@ async def cmd_help(message: Message):
             "• /delete_player [ID страны] — Удалить страну\n"
             "• /next_turn — Завершить ход (расчет экономики)\n"
             "• /set_stat [ID страны] [параметр] [значение] — Изменить статы\n"
+            "• /remove_equip [ID страны] [ID техники] [кол-во] — Изъять технику\n"
             "• /add_stat [ID страны] [параметр] [значение] — Добавить статы (можно минус)\n"
+            "• /world_event [параметр] [значение] [сообщение] — Мировое событие (изменение у всех)\n"
             "  *Параметры: treasury (казна), taxpayers (население), military (армия),\n"
             "  stability, war_support, inflation, intel_points, area*\n"
         )
@@ -228,7 +281,6 @@ async def cmd_profile(message: Message):
             text += (
                 f"🏭 Фабрики: {total_factories} шт\n"
                 f"🏭 Доход с фабрик: {factory_income:.2f} B$\n"
-                f"🏢 Доход предприятий (чисто): 0.00 B$\n"
             )
             
         text += (
@@ -237,7 +289,8 @@ async def cmd_profile(message: Message):
             f"🪖 Поддержка войны: {country.war_support:.1f}%\n"
             f"🪖 Регулярная: {country.military:,}, расход: {military_upkeep:.2f} B$\n"
             f"💰 Чистый доход: {net_income:.2f} B$\n\n"
-            f"🕵️ Очки агентуры (ОА): {country.intel_points:.1f} (Агентур: {agencies})"
+            f"🕵️ Очки агентуры (ОА): {country.intel_points:.1f} (Агентур: {agencies})\n"
+            f"🛡 Контрразведка: {country.counter_intel_points:.1f} ОА"
         )
         
         await message.answer(text)
@@ -251,65 +304,124 @@ async def start_registration(callback: CallbackQuery, state: FSMContext):
             return
             
     await state.set_state(Registration.name)
-    await callback.message.edit_text("◆ Введите название вашей страны:")
+    await callback.message.edit_text(
+        "◆ <b>Регистрация страны: Шаг 1/8</b>\n"
+        "------------------------------------\n"
+        "Введите название вашей страны.\n\n"
+        "<i>Примеры: Германская Империя, СССР, Республика Фиджи...</i>",
+        parse_mode="HTML"
+    )
 
 @router.message(Registration.name)
 async def process_name(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Ошибка ввода. Ожидается текстовое сообщение с названием.")
+        return
     await state.update_data(name=message.text)
     await state.set_state(Registration.ideology)
-    await message.answer("◆ Введите идеологию:")
+    await message.answer(
+        "◆ <b>Регистрация: Шаг 2/8</b>\n"
+        "------------------------------------\n"
+        "Введите государственную идеологию.\n\n"
+        "<i>Примеры: Коммунизм, Демократия, Фашизм, Монархия...</i>",
+        parse_mode="HTML"
+    )
 
 @router.message(Registration.ideology)
 async def process_ideology(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Ошибка ввода. Ожидается текстовое сообщение с идеологией.")
+        return
     await state.update_data(ideology=message.text)
     await state.set_state(Registration.ruler)
-    await message.answer("◆ Введите имя правителя:")
+    await message.answer(
+        "◆ <b>Регистрация: Шаг 3/8</b>\n"
+        "------------------------------------\n"
+        "Введите имя правителя (ваше игровое имя или исторического деятеля).\n\n"
+        "<i>Примеры: Иосиф Сталин, Уинстон Черчилль, Император Хирохито...</i>",
+        parse_mode="HTML"
+    )
 
 @router.message(Registration.ruler)
 async def process_ruler(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Ошибка ввода. Ожидается текстовое сообщение с именем правителя.")
+        return
     await state.update_data(ruler=message.text)
     await state.set_state(Registration.party)
-    await message.answer("◆ Введите название правящей партии:")
+    await message.answer(
+        "◆ <b>Регистрация: Шаг 4/8</b>\n"
+        "------------------------------------\n"
+        "Введите название правящей партии.\n\n"
+        "<i>Примеры: КПСС, Консервативная партия, НСДАП...</i>",
+        parse_mode="HTML"
+    )
 
 @router.message(Registration.party)
 async def process_party(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Ошибка ввода. Ожидается текстовое сообщение с названием партии.")
+        return
     await state.update_data(party=message.text)
     await state.set_state(Registration.stats)
     await message.answer(
-        "◆ Введите Стабильность и Поддержку войны через пробел.\n"
+        "◆ <b>Регистрация: Шаг 5/8</b>\n"
         "------------------------------------\n"
-        "• Формат: `80 20`\n"
-        "• Сумма не должна превышать 150%.",
-        parse_mode="Markdown"
+        "Введите два числа через пробел: <b>Стабильность</b> и <b>Поддержку войны</b> (в процентах).\n\n"
+        "• Стабильность влияет на устойчивость государства.\n"
+        "• Поддержка войны влияет на мобилизацию при военном положении.\n"
+        "• <i>Сумма не должна превышать 150%.</i>\n\n"
+        "<i>Пример: <code>80 20</code> (80% стаб, 20% война)</i>",
+        parse_mode="HTML"
     )
 
 @router.message(Registration.stats)
 async def process_stats(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Ошибка ввода. Ожидается текстовое сообщение с двумя числами.")
+        return
     try:
-        parts = message.text.split()
+        parts = message.text.replace(',', ' ').split()
         if len(parts) != 2:
             raise ValueError
         stab = float(parts[0])
         war = float(parts[1])
+        if stab < 0 or war < 0:
+            await message.answer("Ошибка: Значения не могут быть отрицательными.")
+            return
         if stab + war > 150.0:
             await message.answer("Ошибка: Сумма стабильности и поддержки войны не должна превышать 150. Попробуйте еще раз.")
             return
         await state.update_data(stability=stab, war_support=war)
         await state.set_state(Registration.area)
-        await message.answer("◆ Введите площадь страны в кв. км (не более 150000):")
+        await message.answer(
+            "◆ <b>Регистрация: Шаг 6/8</b>\n"
+            "------------------------------------\n"
+            "Введите площадь вашей страны в кв. км (от 1 до 150000).\n\n"
+            "<i>Пример: <code>120000</code></i>",
+            parse_mode="HTML"
+        )
     except ValueError:
-        await message.answer("Ошибка ввода. Пожалуйста, введите два числа через пробел (например: `80 20`).", parse_mode="Markdown")
+        await message.answer("Ошибка ввода. Пожалуйста, введите два числа через пробел (например: <code>80 20</code>).", parse_mode="HTML")
 
 @router.message(Registration.area)
 async def process_area(message: Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Ошибка ввода. Ожидается текстовое сообщение с числом.")
+        return
     try:
-        area = float(message.text)
+        area = float(message.text.replace(',', '.'))
         if area > 150000.0 or area <= 0:
             await message.answer("Ошибка: Площадь должна быть от 1 до 150000. Попробуйте еще раз.")
             return
         await state.update_data(area=area)
         await state.set_state(Registration.flag)
-        await message.answer("◆ Отправьте фото флага вашей страны:")
+        await message.answer(
+            "◆ <b>Регистрация: Шаг 7/8</b>\n"
+            "------------------------------------\n"
+            "Отправьте картинку (фото) флага вашей страны.",
+            parse_mode="HTML"
+        )
     except ValueError:
         await message.answer("Ошибка ввода. Ожидается число.")
 
@@ -318,7 +430,17 @@ async def process_flag(message: Message, state: FSMContext):
     photo_id = message.photo[-1].file_id
     await state.update_data(flag=photo_id)
     await state.set_state(Registration.map)
-    await message.answer("◆ Отправьте фото карты вашей страны:")
+    await message.answer(
+        "◆ <b>Регистрация: Шаг 8/8</b>\n"
+        "------------------------------------\n"
+        "Отправьте картинку (фото) карты вашей страны.",
+        parse_mode="HTML"
+    )
+
+
+@router.message(Registration.flag)
+async def process_flag_invalid(message: Message):
+    await message.answer("Ошибка ввода. Ожидается фото (картинка) флага.")
 
 @router.message(Registration.map, F.photo)
 async def process_map(message: Message, state: FSMContext, bot: Bot):
@@ -340,22 +462,16 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
         f"• Площадь: {data['area']} кв. км"
     )
     
-    # Сохраняем анкету во временное хранилище (в реальном проекте лучше в БД в статус pending)
-    # Здесь для упрощения мы сразу создадим страну, но без флага is_approved,
-    # однако в ТЗ нет флага is_approved, так что мы просто отправим админам на валидацию.
-    # Так как нам нужно прокинуть данные, проще сохранить страну в БД и одобрить/отклонить ее потом.
-    # Но чтобы не усложнять, мы сохраним анкету в state.
-    
     cfg = get_config()
     
     if user_id == cfg.game_settings.root_admin_id:
-        # Авто-апрув для админов (или если админов нет)
+        # Авто-апрув для админов
         country = Country(
             owner_id=user_id, name=data['name'], ideology=data['ideology'],
             ruler=data['ruler'], party=data['party'], stability=data['stability'],
             war_support=data['war_support'], area=data['area'],
             flag_photo_id=data['flag'], map_photo_id=photo_id,
-            treasury=10.0, taxpayers=1000000, military=1000, martial_law=False,
+            treasury=10.0, taxpayers=5000000, military=1000, martial_law=False,
             built_this_turn=0, inflation=0.0, intel_points=0.0, counter_intel_points=0.0
         )
         async with async_session() as session:
@@ -369,7 +485,7 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
             ruler=data['ruler'], party=data['party'], stability=data['stability'],
             war_support=data['war_support'], area=data['area'],
             flag_photo_id=data['flag'], map_photo_id=photo_id,
-            treasury=10.0, taxpayers=1000000, military=1000, martial_law=False,
+            treasury=10.0, taxpayers=5000000, military=1000, martial_law=False,
             built_this_turn=0, inflation=0.0, intel_points=0.0, counter_intel_points=0.0
         )
         async with async_session() as session:
@@ -378,8 +494,21 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
             
         try:
             from keyboards import get_moderation_keyboard
+            from aiogram.types import InputMediaPhoto
+            
             await bot.send_photo(
-                chat_id=cfg.game_settings.admin_chat_id, photo=data['flag'], caption=anketa,
+                chat_id=cfg.game_settings.admin_chat_id,
+                photo=data['flag'],
+                caption=anketa
+            )
+            await bot.send_photo(
+                chat_id=cfg.game_settings.admin_chat_id,
+                photo=photo_id,
+                caption="Карта страны"
+            )
+            await bot.send_message(
+                chat_id=cfg.game_settings.admin_chat_id,
+                text=f"Действие для заявки от @{message.from_user.username} (ID: {user_id}):",
                 reply_markup=get_moderation_keyboard(user_id)
             )
         except Exception as e:
@@ -390,10 +519,15 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
         
     await state.clear()
 
+
+@router.message(Registration.map)
+async def process_map_invalid(message: Message):
+    await message.answer("Ошибка ввода. Ожидается фото (картинка) карты.")
+
 @router.callback_query(F.data.startswith("approve_"))
 async def approve_country(callback: CallbackQuery, bot: Bot):
     user_id = int(callback.data.split("_")[1])
-    await callback.message.edit_caption(caption=callback.message.caption + "\n\n✅ ОДОБРЕНО")
+    await callback.message.edit_text(text=callback.message.text + "\n\n✅ ОДОБРЕНО")
     try:
         await bot.send_message(user_id, "✅ Ваша страна одобрена администратором! Введите /start")
     except Exception:
@@ -408,7 +542,7 @@ async def reject_country(callback: CallbackQuery, bot: Bot):
             await session.delete(country)
             await session.commit()
             
-    await callback.message.edit_caption(caption=callback.message.caption + "\n\n❌ ОТКЛОНЕНО")
+    await callback.message.edit_text(text=callback.message.text + "\n\n❌ ОТКЛОНЕНО")
     try:
         await bot.send_message(user_id, "❌ Ваша страна была отклонена администратором. Вы можете подать заявку заново через /start.")
     except Exception:
@@ -456,6 +590,41 @@ async def toggle_martial_law(callback: CallbackQuery):
         )
         await callback.answer(f"Военное положение: {'ВКЛ' if country.martial_law else 'ВЫКЛ'}")
 
+
+@router.message(Command("rate"))
+async def cmd_rate(message: Message):
+    cfg = get_config()
+    
+    response = "◆ **Производительность техники (за 1 завод):**\n------------------------------------\n"
+    
+    # Group items by category
+    items_by_category = {}
+    for item in cfg.items:
+        items_by_category.setdefault(item.category, []).append(item)
+        
+    for category, items in items_by_category.items():
+        response += f"🔹 **{category}**\n"
+        for item in items:
+            b_cfg = next((b for b in cfg.buildings if b.building_id == item.required_factory_id), None)
+            b_short = b_cfg.short_name if b_cfg else ""
+            
+            sec_short = ""
+            if getattr(item, 'secondary_factory_id', None):
+                sec_cfg = next((b for b in cfg.buildings if b.building_id == item.secondary_factory_id), None)
+                if sec_cfg:
+                    sec_count = getattr(item, 'secondary_factory_count', 0)
+                    sec_short = f" + {sec_count}{sec_cfg.short_name}"
+                    
+            prod_formatted = f"{item.output_per_factory:,.1f}".replace('.0', '') if isinstance(item.output_per_factory, float) else f"{item.output_per_factory:,}"
+            response += f"▫️ {item.item_id}. {item.name}: {prod_formatted} шт. (нужно 1{b_short}{sec_short})\n"
+        response += "\n"
+        
+    if len(response) > 4000:
+        for x in range(0, len(response), 4000):
+            await message.answer(response[x:x+4000], parse_mode="Markdown")
+    else:
+        await message.answer(response, parse_mode="Markdown")
+
 @router.message(Command("production"))
 async def cmd_production(message: Message):
     async with async_session() as session:
@@ -487,9 +656,12 @@ async def cmd_production(message: Message):
             i_cfg = next((i for i in cfg.items if i.item_id == cp.item_id), None)
             if i_cfg:
                 used_factories[i_cfg.required_factory_id] = used_factories.get(i_cfg.required_factory_id, 0) + cp.assigned_factories
+                if getattr(i_cfg, 'secondary_factory_id', None):
+                    used_factories[i_cfg.secondary_factory_id] = used_factories.get(i_cfg.secondary_factory_id, 0) + (cp.assigned_factories * getattr(i_cfg, 'secondary_factory_count', 0))
                 
+        used_factories[6] = used_factories.get(6, 0) + country_full.lab_assigned_phase_1 + country_full.lab_assigned_phase_2 + country_full.lab_assigned_phase_3 + country_full.lab_assigned_phase_4 + country_full.lab_assigned_phase_5
         for b_cfg in cfg.buildings:
-            if b_cfg.building_id == 4: # Исключаем агентуру (Фабрики теперь нужны для Генератора)
+            if b_cfg.building_id in [4, 5]: # Исключаем агентуру и фабрики
                 continue
             cb = next((b for b in country_full.buildings if b.building_id == b_cfg.building_id), None)
             total = cb.total_count if cb else 0
@@ -519,7 +691,18 @@ async def cmd_production(message: Message):
                 b_cfg = next((b for b in cfg.buildings if b.building_id == item.required_factory_id), None)
                 b_short = b_cfg.short_name if b_cfg else ""
                 
-                response += f"{item.item_id}. {item.name}: {amount:,}шт / +{production:,}шт {factories}{b_short}\n"
+                # Find secondary building if exists
+                sec_short = ""
+                if getattr(item, 'secondary_factory_id', None):
+                    sec_cfg = next((b for b in cfg.buildings if b.building_id == item.secondary_factory_id), None)
+                    if sec_cfg:
+                        sec_count = factories * getattr(item, 'secondary_factory_count', 0)
+                        sec_short = f" + {sec_count}{sec_cfg.short_name}"
+                
+                amount_formatted = f"{amount:,.1f}".replace('.0', '') if isinstance(amount, float) else f"{amount:,}"
+                prod_formatted = f"{production:,.1f}".replace('.0', '') if isinstance(production, float) else f"{production:,}"
+                
+                response += f"{item.item_id}. {item.name}: {amount_formatted}шт / +{prod_formatted}шт ({factories}{b_short}{sec_short})\n"
             response += "\n"
                 
         response += "\n💡 *Как управлять производством:*\n"
@@ -527,6 +710,38 @@ async def cmd_production(message: Message):
         response += "Снять: `/unset_prod [ID техники] [Количество|all]`\n"
         
         await message.answer(response, parse_mode="Markdown")
+
+@router.message(Command("counter_intel"))
+async def cmd_counter_intel(message: Message):
+    args = message.text.split()
+    if len(args) != 2:
+        await message.answer("⚠️ Использование: `/counter_intel [количество_ОА]`\nПереводит ваши Очки Агентуры в контрразведку для защиты от шпионажа.", parse_mode="Markdown")
+        return
+        
+    try:
+        amount = float(args[1])
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Ошибка: Укажите положительное число.")
+        return
+        
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country:
+            await message.answer("❌ У вас нет страны!")
+            return
+            
+        if country.intel_points < amount:
+            await message.answer(f"❌ Недостаточно ОА! Доступно: {country.intel_points:.1f}")
+            return
+            
+        country.intel_points -= amount
+        country.counter_intel_points += amount
+        await session.commit()
+        
+        await message.answer(f"🛡 Вы успешно перевели {amount:.1f} ОА в контрразведку.\nТекущая защита: {country.counter_intel_points:.1f} ОА.")
+
 @router.message(Command("spy"))
 async def cmd_spy(message: Message):
     async with async_session() as session:
@@ -599,6 +814,37 @@ async def spy_op_selected(callback: CallbackQuery):
             
         country.intel_points -= final_cost
         
+        
+
+        # Защита от шпионажа
+        import random
+        from aiogram import Bot
+        
+        block_chance = 0.0
+        if target.counter_intel_points > 0:
+            block_chance = target.counter_intel_points / final_cost
+            if block_chance > 0.95:
+                block_chance = 0.95
+                
+        if random.random() < block_chance:
+            target.counter_intel_points -= final_cost * block_chance
+            if target.counter_intel_points < 0: target.counter_intel_points = 0.0
+            await session.commit()
+            
+            await callback.message.edit_text(f"❌ **Операция провалена!**\nКонтрразведка страны {target.name} перехватила наших агентов.\nВы потеряли {final_cost:.1f} ОА.", parse_mode="Markdown")
+            await callback.answer()
+            
+            bot = callback.bot
+            try:
+                await bot.send_message(target.owner_id, f"🛡 **Успешная контрразведка!**\nВаши спецслужбы перехватили вражеских агентов страны {country.name}.\nТекущая защита: {target.counter_intel_points:.1f} ОА.", parse_mode="Markdown")
+            except Exception:
+                pass
+            return
+            
+        if target.counter_intel_points > 0:
+            target.counter_intel_points -= final_cost * 0.5
+            if target.counter_intel_points < 0: target.counter_intel_points = 0.0
+
         res = f"🕵️ Отчет разведки (Цель: {target.name})\n------------------------------------\n"
         if op_type == 1:
             res += f"💰 Казна: {target.treasury:.2f} B$"
@@ -700,6 +946,84 @@ async def cmd_delete_player(message: Message):
         await session.commit()
         await message.answer(f"✅ Страна **{target_country.name}** и её владелец были удалены из игры.", parse_mode="Markdown")
 
+
+@router.message(Command("reform"))
+async def cmd_reform(message: Message):
+    args = message.text.split(maxsplit=2)
+    if len(args) < 2:
+        await message.answer("⚠️ Использование: `/reform [сумма_в_млрд] [опционально: описание]`\nНапример: `/reform 5 Реформа образования`", parse_mode="Markdown")
+        return
+        
+    try:
+        amount = float(args[1])
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Ошибка: Укажите положительную сумму.")
+        return
+        
+    desc = args[2] if len(args) > 2 else "Без описания"
+    
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country:
+            await message.answer("❌ У вас нет страны!")
+            return
+            
+        if country.treasury < amount:
+            await message.answer(f"❌ Недостаточно средств в казне! Доступно: {country.treasury:.2f} B$")
+            return
+            
+        from keyboards import get_reform_confirm_keyboard
+        await message.answer(
+            f"🏛 **Проведение реформы**\n"
+            f"Сумма: {amount:.2f} B$\n"
+            f"Описание: {desc}\n\n"
+            f"Вы уверены, что хотите выделить средства?",
+            reply_markup=get_reform_confirm_keyboard(amount),
+            parse_mode="Markdown"
+        )
+
+@router.callback_query(F.data.startswith("reform_yes_"))
+async def reform_yes(callback: CallbackQuery):
+    amount = float(callback.data.split("_")[2])
+    
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == callback.from_user.id))
+        if not country:
+            await callback.answer("❌ Страна не найдена.", show_alert=True)
+            return
+            
+        if country.treasury < amount:
+            await callback.answer("❌ Недостаточно средств в казне!", show_alert=True)
+            await callback.message.edit_text("❌ Реформа отменена (недостаточно средств).")
+            return
+            
+        country.treasury -= amount
+        await session.commit()
+        
+        old_text = callback.message.text
+        lines = old_text.split('\n')
+        if len(lines) > 2:
+            new_text = "\n".join(lines[:-2]) + f"\n\n✅ **Реформа успешно проведена!**\nСписано: {amount:.2f} B$.\nТекущая казна: {country.treasury:.2f} B$"
+        else:
+            new_text = f"✅ **Реформа успешно проведена!**\nСписано: {amount:.2f} B$.\nТекущая казна: {country.treasury:.2f} B$"
+            
+        await callback.message.edit_text(new_text, parse_mode="Markdown")
+        await callback.answer()
+
+@router.callback_query(F.data == "reform_no")
+async def reform_no(callback: CallbackQuery):
+    old_text = callback.message.text
+    lines = old_text.split('\n')
+    if len(lines) > 2:
+        new_text = "\n".join(lines[:-2]) + "\n\n❌ **Реформа отменена.**"
+    else:
+        new_text = "❌ **Реформа отменена.**"
+        
+    await callback.message.edit_text(new_text, parse_mode="Markdown")
+    await callback.answer()
+
 @router.message(Command("buildings"))
 async def cmd_buildings(message: Message):
     async with async_session() as session:
@@ -715,7 +1039,7 @@ async def cmd_buildings(message: Message):
             if b.enabled:
                 desc = f" ({b.description})" if getattr(b, 'description', "") else ""
                 actual_cost = b.base_cost_billion * inflation_mult
-                res += f"• ID: {b.building_id} | {b.name} — {actual_cost:.2f} B$  <i>{desc.strip(' ()')}</i>\n\n"
+                res += f"• ID: {b.building_id} | {b.name} — {actual_cost:.2f} B$\n  <i>{desc.strip(' ()')}</i>\n\n"
         await message.answer(res, parse_mode="HTML")
 
 @router.message(Command("build"))
@@ -744,11 +1068,19 @@ async def cmd_build(message: Message):
     cfg = get_config()
     building = next((b for b in cfg.buildings if b.building_id == b_id), None)
     
-    if not building:
-        await message.answer(f"Ошибка: Здание с ID {b_id} не найдено в конфигурации.")
+    if not building or not building.enabled:
+        await message.answer(f"Ошибка: Здание с ID {b_id} не найдено или отключено.")
         return
         
     async with async_session() as session:
+        from database import GameState
+        state = await session.scalar(select(GameState))
+        turn_number = state.turn_number if state else 1
+
+        if b_id == 6 and turn_number <= 5:
+            await message.answer("❌ Вы не можете строить Ядерные лаборатории в первые 5 ходов вайпа.")
+            return
+
         country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
         if not country:
             await message.answer("У вас нет страны!")
@@ -836,6 +1168,11 @@ async def cmd_set_prod(message: Message):
         await message.answer(f"❌ Ошибка: Техника с ID {i_id} не найдена.")
         return
         
+    building = next((b for b in cfg.buildings if b.building_id == b_id), None)
+    if not building or not building.enabled:
+        await message.answer(f"❌ Ошибка: Здание с ID {b_id} не найдено или отключено.")
+        return
+
     if item.required_factory_id != b_id:
         await message.answer(f"❌ Ошибка: Для этой техники требуется завод с ID {item.required_factory_id}.")
         return
@@ -843,6 +1180,18 @@ async def cmd_set_prod(message: Message):
     async with async_session() as session:
         country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
         if not country: return
+        
+        if i_id == 21: # Ядерная бомба
+            completed = all([
+                country.nuclear_phase_1 >= 100,
+                country.nuclear_phase_2 >= 100,
+                country.nuclear_phase_3 >= 100,
+                country.nuclear_phase_4 >= 100,
+                country.nuclear_phase_5 >= 100
+            ])
+            if not completed:
+                await message.answer("❌ Ошибка: Для производства ядерного оружия необходимо завершить все этапы ядерной программы!")
+                return
         
         from database import CountryBuilding, CountryProduction
         cb = await session.scalar(select(CountryBuilding).where(
@@ -854,17 +1203,41 @@ async def cmd_set_prod(message: Message):
         
         # Считаем, сколько таких заводов уже занято
         all_prods = await session.scalars(select(CountryProduction).where(CountryProduction.country_id == country.id))
-        used_b = 0
-        for cp in all_prods:
-            c_item = next((i for i in cfg.items if i.item_id == cp.item_id), None)
-            if c_item and c_item.required_factory_id == b_id:
-                used_b += cp.assigned_factories
-                
+        all_prods_list = list(all_prods)
+
+        def get_used_b(target_b_id):
+            used = 0
+            for cp in all_prods_list:
+                c_item = next((i for i in cfg.items if i.item_id == cp.item_id), None)
+                if c_item:
+                    if c_item.required_factory_id == target_b_id:
+                        used += cp.assigned_factories
+                    if getattr(c_item, 'secondary_factory_id', None) == target_b_id:
+                        used += cp.assigned_factories * getattr(c_item, 'secondary_factory_count', 0)
+            if target_b_id == 6:
+                used += country.lab_assigned_phase_1 + country.lab_assigned_phase_2 + country.lab_assigned_phase_3 + country.lab_assigned_phase_4 + country.lab_assigned_phase_5
+            return used
+
+        used_b = get_used_b(b_id)
         free_b = total_b - used_b
         if free_b < count:
             await message.answer(f"❌ Ошибка: Недостаточно свободных заводов (доступно: {free_b}).")
             return
             
+        if getattr(item, 'secondary_factory_id', None):
+            sec_b_id = item.secondary_factory_id
+            req_sec_count = count * item.secondary_factory_count
+            cb_sec = await session.scalar(select(CountryBuilding).where(
+                CountryBuilding.country_id == country.id,
+                CountryBuilding.building_id == sec_b_id
+            ))
+            total_sec_b = cb_sec.total_count if cb_sec else 0
+            used_sec_b = get_used_b(sec_b_id)
+            free_sec_b = total_sec_b - used_sec_b
+            if free_sec_b < req_sec_count:
+                await message.answer(f"❌ Ошибка: Недостаточно вспомогательных заводов (ID {sec_b_id}). Требуется: {req_sec_count}, доступно: {free_sec_b}.")
+                return
+
         cp = await session.scalar(select(CountryProduction).where(
             CountryProduction.country_id == country.id,
             CountryProduction.item_id == i_id
@@ -927,6 +1300,37 @@ async def cmd_unset_prod(message: Message):
         await session.commit()
         await message.answer(f"✅ Снято {remove_count} заводов с линии ID {i_id}.")
 
+@router.message(Command("toggle_nuclear"))
+async def cmd_toggle_nuclear(message: Message):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("Ошибка: Эта команда доступна только Root-администратору.")
+            return
+
+    import json
+    import os
+    cfg_path = os.path.join(os.path.dirname(__file__), "config.json")
+    with open(cfg_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    new_state = None
+    for b in data.get("buildings", []):
+        if b.get("building_id") == 6:
+            b["enabled"] = not b["enabled"]
+            new_state = b["enabled"]
+            break
+
+    if new_state is None:
+        await message.answer("Ошибка: Здание 'Ядерная лаборатория' (ID 6) не найдено в конфиге.")
+        return
+
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+    status = "ВКЛЮЧЕНА" if new_state else "ОТКЛЮЧЕНА"
+    await message.answer(f"✅ Ядерная программа (и строительство лабораторий) успешно **{status}**.", parse_mode="Markdown")
+
 @router.message(Command("next_turn"))
 async def cmd_next_turn(message: Message, bot: Bot):
     from database import GameState
@@ -965,63 +1369,20 @@ async def cmd_next_turn(message: Message, bot: Bot):
             
             # 3. Авто-мобилизация
             if country.martial_law:
-                mob_percent = 0.001 + 0.009 * (country.war_support / 100.0)
+                # min 0.01%, max 0.1% -> 0.0001 to 0.001
+                mob_percent = 0.0001 + 0.0009 * (country.war_support / 100.0)
                 mob_amount = int(country.taxpayers * mob_percent)
                 country.taxpayers -= mob_amount
                 country.military += mob_amount
                 
             # 4. Естественный прирост
-            frostpunk_active = getattr(cfg.game_settings, 'frostpunk_event', False)
-            if frostpunk_active:
-                gen_progress = getattr(country, 'generator_progress', 0.0)
-                gen_assigned = getattr(country, 'factories_assigned_to_generator', 0)
-                
-                # Progress: 1 factory = 0.1 gen per turn
-                gen_progress += gen_assigned * 0.1
-                new_gens = int(gen_progress)
-                if new_gens > 0:
-                    country.generators_built = getattr(country, 'generators_built', 0) + new_gens
-                    gen_progress -= new_gens
-                country.generator_progress = gen_progress
-                
-                generators_built = getattr(country, 'generators_built', 0)
-                heat_level = getattr(country, 'generator_heat_level', 0)
-                radius_level = getattr(country, 'generator_radius_level', 0)
-
-                capacity_per_gen = 2000000 + (radius_level * 500000)
-                total_capacity = generators_built * capacity_per_gen
-                
-                heated_people = min(country.taxpayers, total_capacity)
-                freezing_people = max(0, country.taxpayers - heated_people)
-                
-                # Growth for heated
-                # Base growth + 0.2% (0.002) per generator + 1% per heat level
-                heat_growth = cfg.game_settings.base_population_growth + (generators_built * 0.002) + (heat_level * 0.01)
-                heated_growth_amount = int(heated_people * heat_growth)
-                
-                # Deaths for freezing
-                freezing_death_amount = int(freezing_people * 0.1) # 10%
-                
-                # Stability penalty (-1 stab per 1 million freezing)
-                stability_loss = freezing_people / 1000000.0
-                country.stability = max(0.0, country.stability - stability_loss)
-                
-                growth = heated_growth_amount - freezing_death_amount
-                country.taxpayers += growth
-                
-                frostpunk_report = f"\n❄️ **Frostpunk:**\n♨️ Обогрето: {heated_people:,} | 🥶 Вне тепла: {freezing_people:,}\n"
-                frostpunk_report += f"💀 Умерло от холода: {freezing_death_amount:,}\n"
-                if stability_loss > 0:
-                    frostpunk_report += f"📉 Падение стабильности: -{stability_loss:.1f}%"
-            else:
-                growth = int(country.taxpayers * cfg.game_settings.base_population_growth)
-                country.taxpayers += growth
-                frostpunk_report = ""
-
+            growth = int(country.taxpayers * cfg.game_settings.base_population_growth)
+            country.taxpayers += growth
+            
             # 5. Финансы
             tax_income = country.taxpayers * cfg.game_settings.tax_per_taxpayer_billion
             if country.martial_law:
-                tax_income *= 0.7 # штраф -30%
+                tax_income *= 0.5 # штраф -50% (было 30%)
                 
             # Доход от фабрик (id=5)
             factory_buildings = await session.scalar(
@@ -1029,9 +1390,7 @@ async def cmd_next_turn(message: Message, bot: Bot):
                 .where(CountryBuilding.country_id == country.id, CountryBuilding.building_id == 5)
             )
             factory_count = factory_buildings if factory_buildings else 0
-            used_for_gen = getattr(country, 'factories_assigned_to_generator', 0) if getattr(cfg.game_settings, 'frostpunk_event', False) else 0
-            free_factories = max(0, factory_count - used_for_gen)
-            factory_income = free_factories * 0.3 # 0.3 B$ per free factory
+            factory_income = factory_count * 0.3 # 0.3 B$ per factory
             
             tax_income += factory_income
                 
@@ -1039,6 +1398,20 @@ async def cmd_next_turn(message: Message, bot: Bot):
             
             country.treasury += tax_income
             country.treasury -= upkeep
+            
+            # Ядерная программа
+            lab_building = next((b for b in cfg.buildings if b.building_id == 6), None)
+            if lab_building and lab_building.enabled:
+                if country.lab_assigned_phase_1 > 0 and country.nuclear_phase_1 < 100:
+                    country.nuclear_phase_1 = min(100.0, country.nuclear_phase_1 + country.lab_assigned_phase_1 * 10.0)
+                if country.lab_assigned_phase_2 > 0 and country.nuclear_phase_2 < 100:
+                    country.nuclear_phase_2 = min(100.0, country.nuclear_phase_2 + country.lab_assigned_phase_2 * 10.0)
+                if country.lab_assigned_phase_3 > 0 and country.nuclear_phase_3 < 100:
+                    country.nuclear_phase_3 = min(100.0, country.nuclear_phase_3 + country.lab_assigned_phase_3 * 10.0)
+                if country.lab_assigned_phase_4 > 0 and country.nuclear_phase_4 < 100:
+                    country.nuclear_phase_4 = min(100.0, country.nuclear_phase_4 + country.lab_assigned_phase_4 * 10.0)
+                if country.lab_assigned_phase_5 > 0 and country.nuclear_phase_5 < 100:
+                    country.nuclear_phase_5 = min(100.0, country.nuclear_phase_5 + country.lab_assigned_phase_5 * 10.0)
             
             # 6. Производство
             from database import CountryProduction, CountryStockpile
@@ -1069,7 +1442,6 @@ async def cmd_next_turn(message: Message, bot: Bot):
                     f"• Прирост населения: +{growth:,} чел.\n"
                     f"• Очки агентуры (ОА): +{spy_count * 10.0} ОА\n"
                     f"• Текущая казна: {country.treasury:.2f} B$"
-                    f"{frostpunk_report}"
                 )
                 await bot.send_message(country.owner_id, msg)
             except Exception:
@@ -1161,6 +1533,54 @@ async def cmd_util(message: Message):
         await message.answer(f"✅ Успешно утилизировано {count:,} ед. техники (ID {i_id}).")
 
 
+
+@router.message(Command("remove_equip"))
+async def cmd_remove_equip(message: Message):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("Ошибка: Эта команда доступна только Root-администратору.")
+            return
+
+        args = message.text.split()
+        if len(args) != 4:
+            await message.answer("Использование: `/remove_equip [ID_страны] [ID_техники] [Количество]`", parse_mode="Markdown")
+            return
+            
+        try:
+            c_id = int(args[1])
+            i_id = int(args[2])
+            count = int(args[3])
+            if count <= 0: raise ValueError
+        except ValueError:
+            await message.answer("Ошибка: Аргументы должны быть положительными числами.")
+            return
+            
+        country = await session.scalar(select(Country).where(Country.id == c_id))
+        if not country:
+            await message.answer("Страна не найдена.")
+            return
+            
+        from database import CountryStockpile
+        cs = await session.scalar(select(CountryStockpile).where(
+            CountryStockpile.country_id == country.id,
+            CountryStockpile.item_id == i_id
+        ))
+        
+        if not cs or cs.amount < count:
+            avail = cs.amount if cs else 0
+            await message.answer(f"❌ Ошибка: У страны недостаточно техники. В наличии: {avail}")
+            return
+            
+        cs.amount -= count
+        await session.commit()
+        
+        cfg = get_config()
+        i_cfg = next((i for i in cfg.items if i.item_id == i_id), None)
+        name = i_cfg.name if i_cfg else f"ID {i_id}"
+        
+        await message.answer(f"✅ Успешно изъято {count} ед. {name} у страны {country.name}.")
+
 @router.message(Command("add_stat"))
 async def cmd_add_stat(message: Message):
     # /add_stat [тег_страны/ID] [параметр] [значение]
@@ -1207,55 +1627,470 @@ async def cmd_add_stat(message: Message):
         except Exception as e:
             await message.answer(f"Непредвиденная ошибка: {e}")
 
+@router.message(Command("world_event"))
+async def cmd_world_event(message: Message, bot: Bot):
+    # /world_event [параметр] [значение] [описание...]
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            await message.answer("Ошибка: Эта команда доступна только Root-администратору.")
+            return
+
+        args = message.text.split(maxsplit=3)
+        if len(args) < 3:
+            await message.answer("Использование: `/world_event [параметр] [значение] [опционально: сообщение для всех]`\nИзменяет указанный параметр у ВСЕХ стран (прибавляет значение).", parse_mode="Markdown")
+            return
+            
+        param = args[1]
+        val_str = args[2]
+        event_message = args[3] if len(args) > 3 else None
+        
+        try:
+            val_float = float(val_str)
+        except ValueError:
+            await message.answer("Ошибка: Значение должно быть числом.")
+            return
+            
+        countries = await session.scalars(select(Country))
+        updated_count = 0
+        
+        for country in countries:
+            if hasattr(country, param):
+                col_type = type(getattr(country, param))
+                current_val = getattr(country, param)
+                
+                try:
+                    if col_type == int:
+                        setattr(country, param, current_val + int(float(val_str)))
+                    elif col_type == float:
+                        setattr(country, param, current_val + float(val_str))
+                    else:
+                        continue # Skip non-numeric attributes
+                except Exception:
+                    continue
+                
+                updated_count += 1
+                if event_message:
+                    try:
+                        await bot.send_message(
+                            country.owner_id, 
+                            f"🌍 **Мировое событие!**\n\n{event_message}", 
+                            parse_mode="Markdown"
+                        )
+                    except Exception:
+                        pass
+                        
+        if updated_count > 0:
+            await session.commit()
+            await message.answer(f"✅ Мировое событие применено к {updated_count} странам (изменен параметр {param}).")
+        else:
+            await message.answer("❌ Ошибка: Неверный параметр или параметр не является числовым.")
 
 @router.message(Command("guide"))
 async def cmd_guide(message: Message):
     text = (
-        "◆ Руководство для новичков\n"
+        "◆ <b>Подробное руководство для новичков</b>\n"
         "------------------------------------\n"
-        "Добро пожаловать в бота управления страной ВПИ!\n\n"
-        "📝 <b>Пример анкеты при регистрации:</b>\n"
-        "• Название страны: <i>Германская Империя</i>\n"
-        "• Идеология: <i>Монархия</i>\n"
-        "• Правитель: <i>Вильгельм II</i>\n"
-        "• Правящая партия: <i>Консервативная партия</i>\n\n"
-        "⚙️ <b>С чего начать игру?</b>\n"
-        "1. Проверьте состояние экономики с помощью /profile.\n"
-        "2. Постройте первые заводы, используя /buildings и /build.\n"
-        "3. Назначьте производство техники через /production и /set_prod.\n"
-        "4. Чтобы нанять армию, используйте команду /army.\n5. Если идет ивент Frostpunk, используйте /generator для обогрева.\n\n"
-        "⚠️ Следите за казной (B$) и инфляцией! Слишком много строительства за один ход перегреет экономику.\n"
-        "Каждый ход (выполняется админом) вы получаете налоги и платите за содержание армии."
+        "Добро пожаловать в бота управления страной ВПИ! Здесь вы берете под свой контроль целое государство.\n\n"
+        "🏛 <b>Основы экономики:</b>\n"
+        "• Ваша казна пополняется за счет налогов с населения и гражданских фабрик.\n"
+        "• Содержание армии стоит денег. Чем больше армия, тем больше расходы.\n"
+        "• Следите за инфляцией! Если строить слишком много зданий за один ход (больше 5), экономика перегреется и цены вырастут.\n"
+        "• Можно вкладывать деньги в реформы. Команда: <code>/reform [сумма] [описание]</code>.\n\n"
+        "⚙️ <b>Производство (ВПК):</b>\n"
+        "• Военные заводы производят технику и вооружение.\n"
+        "• Для производства техники нужны заводы определенного типа (например, Военный завод для винтовок).\n"
+        "• Команды: <code>/buildings</code>, <code>/build</code>, <code>/production</code>, <code>/rate</code>, <code>/set_prod</code>.\n\n"
+        "☢️ <b>Ядерная программа:</b>\n"
+        "• Постройте Ядерные лаборатории (доступно после 5-го хода).\n"
+        "• Назначайте лаборатории на этапы исследования командой <code>/lab_assign</code> (меню <code>/nuclear</code>).\n"
+        "• После завершения всех 5 этапов, вы сможете производить Ядерные бомбы.\n" \
+        "• Для производства 1 ядерной бомбы требуется 1 лаборатория и 5 военных заводов.\n\n"
+        "⚔️ <b>Военное положение:</b>\n"
+        "Команда <code>/army</code> позволяет включить 🔴 <b>Военное положение</b>. \n"
+        "<b>Плюсы:</b> Каждый ход часть гражданских автоматически мобилизуется в армию (зависит от Поддержки войны).\n"
+        "<b>Минусы:</b> Сильнейший удар по экономике! Сбор налогов с населения падает на 50%, так как экономика перестраивается на военные рельсы.\n\n"
+        "🕵️ <b>Разведка и Шпионаж:</b>\n"
+        "• Здание «Агентура» каждый ход приносит Очки Агентуры (ОА).\n"
+        "• За ОА можно узнавать данные о других странах (экономику, армию) или проводить диверсии (остановка их заводов).\n"
+        "• Часть ОА можно перевести в Контрразведку (<code>/counter_intel</code>) для защиты от вражеских шпионов.\n"
+        "• Команды: <code>/spy</code>, <code>/counter_intel</code>.\n\n"
+        "🤝 <b>Торговля:</b>\n"
+        "• Вы можете обмениваться деньгами и техникой с другими странами.\n"
+        "• Команда: <code>/trade</code>.\n\n"
+        "🗺 <b>Расширение территорий:</b>\n"
+        "• Команда <code>/expand</code> позволяет подать заявку на захват новых земель.\n"
+        "• Вы выделяете войска, колонистов и технику в экспедицию, а затем прикрепляете фото нужной территории.\n"
+        "• Доступно раз в 3 хода. Во время экспедиции могут произойти различные случайные события (как прибыльные, так и опасные)!\n\n"
+        "<i>Используйте <code>/help</code> для просмотра всех команд!</i>"
     )
     await message.answer(text, parse_mode="HTML")
 
+class ExpandFSM(StatesGroup):
+    waiting_for_troops = State()
+    waiting_for_civilians = State()
+    waiting_for_equipment = State()
+    waiting_for_photo = State()
+
+GOOD_EVENTS = [
+    "На новых территориях найдены залежи золота. В казну поступают дополнительные средства! (+2 B$)",
+    "Найдено крупное месторождение нефти. Экономика процветает! (+2.5 B$)",
+    "Вы наткнулись на дружелюбное племя аборигенов, которое решило присоединиться к вашей империи. (+50 000 населения)",
+    "Обнаружена плодородная долина, привлекающая поселенцев со всего мира. (+100 000 населения)",
+    "Найден старый заброшенный военный склад с припасами. Казна пополнена! (+1 B$)",
+    "Местное население с радостью принимает вашу власть, стабильность в обществе растет! (+5% стабильности)",
+    "Экспедиция обнаружила залежи урана. Выручка от продажи составила +3 B$.",
+    "Присоединились кочевники, искавшие убежище. (+30 000 населения, +5 000 армии)",
+    "Обнаружена сеть пещер с драгоценными камнями! (+2 B$)",
+    "Встречены переселенцы из другой страны, решившие остаться с вами. (+80 000 населения)",
+    "Обнаружен древний город, ставший туристической достопримечательностью. (+1.5 B$)",
+    "Найден упавший транспортный самолет с уцелевшим грузом припасов. (+1 B$)",
+    "Местные фермеры согласны платить налоги, пополняя вашу казну. (+1.2 B$)",
+    "Обнаружены богатые рыбные угодья. Экономика растет. (+1.8 B$)",
+    "Вы нашли заброшенную колонну военной техники. (+2 B$ - выручка от переработки)",
+    "Племя аборигенов подарило вам много золота в знак дружбы. (+1.5 B$)",
+    "Обнаружены редкие растения с уникальными свойствами, медицина приносит доход. (+1 B$)",
+    "Вы нашли скрытую долину, идеальную для сельского хозяйства. (+2 B$)",
+    "Местные охотники присоединились к вашей армии! (+10 000 армии)",
+    "Раскопаны древние сокровища. (+3 B$)",
+    "Местное население, спасаясь от голода из соседнего региона, переходит под ваше крыло. (+60 000 населения)",
+    "Ваш отряд нашел спрятанный тайник с золотыми слитками. (+2 B$)",
+    "Местные ученые-отшельники поделились с вами своими открытиями. Вы продали технологии за +2 B$.",
+    "При расширении обнаружены залежи редкоземельных металлов. (+2.5 B$)",
+    "Племя горцев согласилось стать частью вашей страны. (+40 000 населения, +10 000 армии)"
+]
+
+BAD_EVENTS = [
+    "Отряд столкнулся с агрессивными аборигенами. Вы понесли потери. (-10 000 армии)",
+    "В новых землях вспыхнула неизвестная болезнь, перекинувшаяся на страну. (-50 000 населения)",
+    "Техника увязла в болотах и была брошена, а часть денег утеряна. (-1 B$)",
+    "Войска попали в сильную песчаную бурю/метель, много погибших. (-15 000 армии)",
+    "Местные племена совершили партизанские вылазки на ваш лагерь. (-10 000 армии)",
+    "Обнаружены опасные хищники, нанесшие урон поселенцам. (-20 000 населения)",
+    "Экспедиция заблудилась и исчерпала все запасы. Пришлось тратить казну на спасение. (-1.5 B$)",
+    "Мощное землетрясение в регионе унесло жизни многих колонистов. (-40 000 населения)",
+    "Местные жители оказались переносчиками чумы. (-60 000 населения)",
+    "Войска попали в засаду неизвестных наемников. (-20 000 армии)",
+    "Выброс ядовитых газов из земли погубил часть экспедиции. (-30 000 населения)",
+    "При попытке переправы через реку затонула часть припасов и людей. (-1 B$, -5 000 армии)",
+    "Лагерь экспедиции сгорел из-за лесного пожара. (-1 B$)",
+    "Местное население подняло мятеж против ваших войск! (-10 000 населения, -5 000 армии)",
+    "Экспедиция наткнулась на старое минное поле. (-12 000 армии)",
+    "Суровая зима погубила много неподготовленных колонистов. (-50 000 населения)",
+    "Укус редкого насекомого вызвал эпидемию в лагере. (-30 000 населения)",
+    "Транспорт провалился под лед или в карстовую воронку. (-1.5 B$)",
+    "Часть войск дезертировала, прихватив с собой часть казны. (-1 B$, -10 000 армии)",
+    "Наводнение смыло временный лагерь и припасы. (-2 B$)",
+    "Отряд отравился неизвестными ядовитыми плодами. (-8 000 армии)",
+    "Столкновение с дикими племенами каннибалов. (-20 000 населения, -5 000 армии)",
+    "Местные бандиты ограбили обоз экспедиции. (-1.5 B$)",
+    "Неизвестный вирус поразил сельскохозяйственные культуры колонистов, вызвав голод. (-40 000 населения)",
+    "Лавины или камнепады уничтожили часть отряда в горах. (-15 000 армии)"
+]
+
+def apply_event_effect(country: Country, event_text: str):
+    if "+2 B$" in event_text: country.treasury += 2.0
+    if "+2.5 B$" in event_text: country.treasury += 2.5
+    if "+50 000 населения" in event_text: country.taxpayers += 50000
+    if "+100 000 населения" in event_text: country.taxpayers += 100000
+    if "+1 B$" in event_text: country.treasury += 1.0
+    if "+5% стабильности" in event_text: country.stability = min(100.0, country.stability + 5.0)
+    if "+3 B$" in event_text: country.treasury += 3.0
+    if "+30 000 населения" in event_text: country.taxpayers += 30000
+    if "+5 000 армии" in event_text: country.military += 5000
+    if "+80 000 населения" in event_text: country.taxpayers += 80000
+    if "+1.5 B$" in event_text: country.treasury += 1.5
+    if "+1.2 B$" in event_text: country.treasury += 1.2
+    if "+1.8 B$" in event_text: country.treasury += 1.8
+    if "+10 000 армии" in event_text: country.military += 10000
+    if "+60 000 населения" in event_text: country.taxpayers += 60000
+    if "+40 000 населения" in event_text: country.taxpayers += 40000
+    
+    if "-10 000 армии" in event_text: country.military = max(0, country.military - 10000)
+    if "-50 000 населения" in event_text: country.taxpayers = max(0, country.taxpayers - 50000)
+    if "-1 B$" in event_text: country.treasury = max(0, country.treasury - 1.0)
+    if "-15 000 армии" in event_text: country.military = max(0, country.military - 15000)
+    if "-20 000 населения" in event_text: country.taxpayers = max(0, country.taxpayers - 20000)
+    if "-1.5 B$" in event_text: country.treasury = max(0, country.treasury - 1.5)
+    if "-40 000 населения" in event_text: country.taxpayers = max(0, country.taxpayers - 40000)
+    if "-60 000 населения" in event_text: country.taxpayers = max(0, country.taxpayers - 60000)
+    if "-20 000 армии" in event_text: country.military = max(0, country.military - 20000)
+    if "-30 000 населения" in event_text: country.taxpayers = max(0, country.taxpayers - 30000)
+    if "-5 000 армии" in event_text: country.military = max(0, country.military - 5000)
+    if "-10 000 населения" in event_text: country.taxpayers = max(0, country.taxpayers - 10000)
+    if "-12 000 армии" in event_text: country.military = max(0, country.military - 12000)
+    if "-2 B$" in event_text: country.treasury = max(0, country.treasury - 2.0)
+    if "-8 000 армии" in event_text: country.military = max(0, country.military - 8000)
 
 
-@router.message(Command("add_gen"))
-async def cmd_add_gen(message: Message):
-    args = message.text.split()
-    if len(args) != 3:
-        await message.answer("⚠️ Использование: `/add_gen [ID_страны] [кол-во]`", parse_mode="Markdown")
+@router.message(Command("expand"))
+async def cmd_expand_start(message: Message, state: FSMContext):
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country:
+            await message.answer("❌ У вас нет страны!")
+            return
+            
+        game_state = await session.scalar(select(GameState))
+        turn = game_state.turn_number if game_state else 1
+        
+        if turn - country.last_expand_turn < 3:
+            await message.answer(f"⏳ Вы недавно уже проводили расширение. Следующее доступно только через {3 - (turn - country.last_expand_turn)} ход(ов).")
+            return
+            
+        # Start FSM
+        await state.update_data(country_id=country.id, turn_number=turn, max_troops=country.military)
+        await message.answer(f"🗺 <b>Планирование расширения</b>\nСколько солдат вы хотите отправить в экспедицию?\n(Доступно: {country.military})", parse_mode="HTML")
+        await state.set_state(ExpandFSM.waiting_for_troops)
+
+@router.message(ExpandFSM.waiting_for_troops)
+async def expand_troops(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("Введите число.")
+        return
+    troops = int(message.text)
+    data = await state.get_data()
+    if troops < 0 or troops > data['max_troops']:
+        await message.answer(f"Некорректное количество (максимум {data['max_troops']}).")
         return
         
-    try:
-        c_id = int(args[1])
-        amount = int(args[2])
-    except ValueError:
-        await message.answer("❌ ID и количество должны быть числами.")
-        return
+    await state.update_data(troops=troops)
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.id == data['country_id']))
+        await state.update_data(max_civilians=country.taxpayers)
+        await message.answer(f"Отлично. Сколько местных жителей (колонистов) вы хотите отправить?\n(Доступно: {country.taxpayers})")
+    await state.set_state(ExpandFSM.waiting_for_civilians)
 
+@router.message(ExpandFSM.waiting_for_civilians)
+async def expand_civilians(message: Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("Введите число.")
+        return
+    civilians = int(message.text)
+    data = await state.get_data()
+    if civilians < 0 or civilians > data['max_civilians']:
+        await message.answer(f"Некорректное количество (максимум {data['max_civilians']}).")
+        return
+        
+    await state.update_data(civilians=civilians, equipment={})
+    
+    cfg = get_config()
+    text = "Хотите ли вы отправить технику в экспедицию?\nВведите ID техники и количество через пробел (например: <code>1 500</code>) или напишите <b>Готово</b>, чтобы продолжить."
+    await message.answer(text, parse_mode="HTML")
+    await state.set_state(ExpandFSM.waiting_for_equipment)
+
+@router.message(ExpandFSM.waiting_for_equipment)
+async def expand_equipment(message: Message, state: FSMContext):
+    if message.text.lower() in ["готово", "done", "пропустить", "skip"]:
+        await message.answer("Прикрепите фото с выделенной территорией на карте, которую вы планируете захватить/освоить.")
+        await state.set_state(ExpandFSM.waiting_for_photo)
+        return
+        
+    args = message.text.split()
+    if len(args) != 2:
+        await message.answer("Неверный формат. Введите ID техники и количество (например: 1 500) или 'Готово'.")
+        return
+    
+    try:
+        item_id = int(args[0])
+        amount = int(args[1])
+        if amount <= 0: raise ValueError
+    except ValueError:
+        await message.answer("Ошибка: Аргументы должны быть положительными числами.")
+        return
+        
+    cfg = get_config()
+    item_cfg = next((i for i in cfg.items if i.item_id == item_id), None)
+    if not item_cfg:
+        await message.answer("Техника с таким ID не найдена.")
+        return
+        
+    data = await state.get_data()
+    async with async_session() as session:
+        stock = await session.scalar(select(CountryStockpile).where(
+            CountryStockpile.country_id == data['country_id'],
+            CountryStockpile.item_id == item_id
+        ))
+        avail = stock.amount if stock else 0
+        
+        current_eq = data.get('equipment', {})
+        current_amount = current_eq.get(str(item_id), 0)
+        
+        if amount + current_amount > avail:
+            await message.answer(f"Недостаточно техники {item_cfg.name} (доступно: {avail}).")
+            return
+            
+        current_eq[str(item_id)] = current_amount + amount
+        await state.update_data(equipment=current_eq)
+        await message.answer(f"✅ Добавлено {amount} x {item_cfg.name}. Введите еще или 'Готово'.")
+
+@router.message(ExpandFSM.waiting_for_photo, F.photo)
+async def expand_photo(message: Message, state: FSMContext, bot: Bot):
+    photo_file_id = message.photo[-1].file_id
+    data = await state.get_data()
+    
+    cfg = get_config()
+    admin_chat_id = cfg.game_settings.admin_chat_id
+    
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.id == data['country_id']))
+        
+        # Deduct resources
+        country.military -= data['troops']
+        country.taxpayers -= data['civilians']
+        
+        # Deduct equipment
+        for item_id_str, amount in data['equipment'].items():
+            item_id = int(item_id_str)
+            stock = await session.scalar(select(CountryStockpile).where(
+                CountryStockpile.country_id == data['country_id'],
+                CountryStockpile.item_id == item_id
+            ))
+            if stock:
+                stock.amount -= amount
+                
+        # Register request
+        req = ExpansionRequest(
+            country_id=country.id,
+            turn_number=data['turn_number'],
+            troops=data['troops'],
+            civilians=data['civilians'],
+            equipment=data['equipment'],
+            photo_file_id=photo_file_id
+        )
+        session.add(req)
+        await session.commit()
+        await session.refresh(req)
+        
+        eq_text = "\n".join([f"ID {k}: {v} шт." for k,v in data['equipment'].items()]) if data['equipment'] else "Нет"
+        
+        req_text = (
+            f"🗺 <b>Запрос на расширение #{req.id}</b>\n"
+            f"От страны: {country.name}\n"
+            f"Солдат: {data['troops']}\n"
+            f"Колонистов: {data['civilians']}\n"
+            f"Техника:\n{eq_text}\n\n"
+            f"Для модерации используйте:\n"
+            f"/exp_approve {req.id} [Текст результата]\n"
+            f"/exp_reject {req.id} [Причина]"
+        )
+        await bot.send_photo(admin_chat_id, photo_file_id, caption=req_text, parse_mode="HTML")
+        await message.answer("✅ Ваш запрос на расширение отправлен на проверку администратору. Войска и ресурсы временно списаны. В случае отклонения они вернутся.")
+        await state.clear()
+
+@router.message(Command("exp_approve"))
+async def cmd_exp_approve(message: Message, bot: Bot):
     async with async_session() as session:
         user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
         if not user or user.role != RoleEnum.root:
-            await message.answer("❌ Нет прав.")
             return
-            
-        country = await session.get(Country, c_id)
-        if not country:
-            await message.answer(f"❌ Страна {c_id} не найдена.")
+        
+        text = message.text or message.caption or ""
+        args = text.split(maxsplit=2)
+        if len(args) < 2:
+            await message.answer("Использование: /exp_approve [ID] [Опциональный текст для игрока]. Прикрепите фото, если войск не хватило на всю территорию.")
             return
+        
+        req_id = int(args[1])
+        admin_text = args[2] if len(args) > 2 else "Расширение одобрено."
+        
+        req = await session.scalar(select(ExpansionRequest).where(ExpansionRequest.id == req_id))
+        if not req or req.status != "pending":
+            await message.answer("Запрос не найден или уже обработан.")
+            return
+        
+        country = await session.scalar(select(Country).where(Country.id == req.country_id))
+        
+        req.status = "approved"
+        country.last_expand_turn = req.turn_number
+        
+        # Event generator
+        event_chance = random.random()
+        event_text = ""
+        if event_chance > 0.15:
+            event_text = "Расширение прошло штатно, без особых происшествий."
+        else:
+            is_good = random.choice([True, False])
+            if is_good:
+                event_str = random.choice(GOOD_EVENTS)
+                event_text = f"🟢 <b>Счастливый случай!</b>\n{event_str}"
+                apply_event_effect(country, event_str)
+            else:
+                event_str = random.choice(BAD_EVENTS)
+                event_text = f"🔴 <b>Происшествие!</b>\n{event_str}"
+                apply_event_effect(country, event_str)
+                
+        # Send result to user
+        final_msg = (
+            f"🗺 <b>Результаты расширения</b>\n"
+            f"<b>Комментарий ГМ:</b> {admin_text}\n\n"
+            f"<b>События в экспедиции:</b>\n{event_text}"
+        )
+        
+        photo_file_id = message.photo[-1].file_id if message.photo else None
+        
+        try:
+            if photo_file_id:
+                await bot.send_photo(country.owner_id, photo_file_id, caption=final_msg, parse_mode="HTML")
+            else:
+                await bot.send_message(country.owner_id, final_msg, parse_mode="HTML")
+            await message.answer(f"✅ Запрос #{req_id} одобрен. Результат отправлен игроку.")
+        except Exception as e:
+            await message.answer(f"Запрос одобрен, но не удалось отправить сообщение игроку: {e}")
             
-        country.generators_built = getattr(country, 'generators_built', 0) + amount
         await session.commit()
-        await message.answer(f"✅ Стране {country.name} выдано {amount} генераторов. Всего: {country.generators_built}")
+
+@router.message(Command("exp_reject"))
+async def cmd_exp_reject(message: Message, bot: Bot):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.telegram_id == message.from_user.id))
+        if not user or user.role != RoleEnum.root:
+            return
+            
+        args = message.text.split(maxsplit=2)
+        if len(args) < 2:
+            await message.answer("Использование: /exp_reject [ID] [Опционально причина]")
+            return
+            
+        req_id = int(args[1])
+        admin_text = args[2] if len(args) > 2 else "Отклонено ГМ."
+        
+        req = await session.scalar(select(ExpansionRequest).where(ExpansionRequest.id == req_id))
+        if not req or req.status != "pending":
+            await message.answer("Запрос не найден или уже обработан.")
+            return
+            
+        country = await session.scalar(select(Country).where(Country.id == req.country_id))
+        
+        req.status = "rejected"
+        
+        # Refund resources
+        country.military += req.troops
+        country.taxpayers += req.civilians
+        
+        # Refund equipment
+        for item_id_str, amount in req.equipment.items():
+            item_id = int(item_id_str)
+            stock = await session.scalar(select(CountryStockpile).where(
+                CountryStockpile.country_id == country.id,
+                CountryStockpile.item_id == item_id
+            ))
+            if stock:
+                stock.amount += amount
+            else:
+                new_stock = CountryStockpile(country_id=country.id, item_id=item_id, amount=amount)
+                session.add(new_stock)
+                
+        # Send result to user
+        final_msg = (
+            f"❌ <b>Отказ в расширении</b>\n"
+            f"<b>Причина:</b> {admin_text}\n\n"
+            f"Ваши войска и ресурсы возвращены в страну."
+        )
+        try:
+            await bot.send_message(country.owner_id, final_msg, parse_mode="HTML")
+            await message.answer(f"✅ Запрос #{req_id} отклонен. Ресурсы возвращены. Результат отправлен игроку.")
+        except Exception as e:
+            await message.answer(f"Запрос отклонен, но не удалось отправить сообщение игроку: {e}")
+            
+        await session.commit()

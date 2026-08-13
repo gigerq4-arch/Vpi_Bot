@@ -54,7 +54,6 @@ class Country(Base):
     buildings: Mapped[list["CountryBuilding"]] = relationship("CountryBuilding", back_populates="country")
     productions: Mapped[list["CountryProduction"]] = relationship("CountryProduction", back_populates="country")
     stockpiles: Mapped[list["CountryStockpile"]] = relationship("CountryStockpile", back_populates="country")
-    events: Mapped[list["CountryEvent"]] = relationship("CountryEvent", back_populates="country")
 
     # Ядерная программа
     nuclear_phase_1: Mapped[float] = mapped_column(Float, default=0.0)
@@ -69,14 +68,6 @@ class Country(Base):
     lab_assigned_phase_4: Mapped[int] = mapped_column(Integer, default=0)
     lab_assigned_phase_5: Mapped[int] = mapped_column(Integer, default=0)
     last_expand_turn: Mapped[int] = mapped_column(Integer, default=-3)
-    growth_modifier: Mapped[float] = mapped_column(Float, default=0.0)
-
-    # Генератор
-    generator_heat_level: Mapped[int] = mapped_column(Integer, default=0)
-    generator_radius_level: Mapped[int] = mapped_column(Integer, default=0)
-    generator_progress: Mapped[float] = mapped_column(Float, default=0.0)
-    factories_assigned_to_generator: Mapped[int] = mapped_column(Integer, default=0)
-    generators_built: Mapped[int] = mapped_column(Integer, default=0)
 
 class CountryBuilding(Base):
     __tablename__ = 'country_buildings'
@@ -107,21 +98,6 @@ class CountryStockpile(Base):
     amount: Mapped[float] = mapped_column(Float, default=0.0)
 
     country: Mapped["Country"] = relationship("Country", back_populates="stockpiles")
-
-
-class CountryEvent(Base):
-    __tablename__ = 'country_events'
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    country_id: Mapped[int] = mapped_column(Integer, ForeignKey('countries.id'))
-    description: Mapped[str] = mapped_column(String)
-    
-    tax_modifier: Mapped[float] = mapped_column(Float, default=0.0)
-    stability_modifier: Mapped[float] = mapped_column(Float, default=0.0)
-    war_support_modifier: Mapped[float] = mapped_column(Float, default=0.0)
-    
-    turns_left: Mapped[int] = mapped_column(Integer)
-    
-    country: Mapped["Country"] = relationship("Country", back_populates="events")
 
 class TradeSession(Base):
     __tablename__ = 'trade_sessions'
@@ -155,6 +131,7 @@ class GameState(Base):
 
 # --- Database initialization ---
 
+# For local development we use aiosqlite. In production this should be asyncpg (PostgreSQL).
 import os
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./vpi_bot.db")
 if DATABASE_URL.startswith("postgres://"):
@@ -164,6 +141,7 @@ elif DATABASE_URL.startswith("postgresql://"):
 
 connect_args = {}
 if "postgresql+asyncpg://" in DATABASE_URL:
+    # asyncpg doesn't support sslmode=require in the query string the way psycopg2 does
     import re
     if "sslmode=require" in DATABASE_URL or "ssl=require" in DATABASE_URL:
         DATABASE_URL = re.sub(r'[\?&]sslmode=require', '', DATABASE_URL)
@@ -190,14 +168,7 @@ async def init_db():
         "ALTER TABLE countries ADD COLUMN lab_assigned_phase_3 INTEGER DEFAULT 0;",
         "ALTER TABLE countries ADD COLUMN lab_assigned_phase_4 INTEGER DEFAULT 0;",
         "ALTER TABLE countries ADD COLUMN lab_assigned_phase_5 INTEGER DEFAULT 0;",
-        "ALTER TABLE countries ADD COLUMN last_expand_turn INTEGER DEFAULT -3;",
-        "ALTER TABLE countries ADD COLUMN growth_modifier FLOAT DEFAULT 0.0;",
-        "ALTER TABLE countries ADD COLUMN generator_heat_level INTEGER DEFAULT 0;",
-        "ALTER TABLE countries ADD COLUMN generator_radius_level INTEGER DEFAULT 0;",
-        "ALTER TABLE countries ADD COLUMN generator_progress FLOAT DEFAULT 0.0;",
-        "ALTER TABLE countries ADD COLUMN factories_assigned_to_generator INTEGER DEFAULT 0;",
-        "ALTER TABLE countries ADD COLUMN generators_built INTEGER DEFAULT 0;",
-        "CREATE TABLE IF NOT EXISTS country_events (id SERIAL PRIMARY KEY, country_id INTEGER REFERENCES countries(id), description VARCHAR, tax_modifier FLOAT DEFAULT 0.0, stability_modifier FLOAT DEFAULT 0.0, war_support_modifier FLOAT DEFAULT 0.0, turns_left INTEGER);"
+        "ALTER TABLE countries ADD COLUMN last_expand_turn INTEGER DEFAULT -3;"
     ]
     
     from sqlalchemy import text

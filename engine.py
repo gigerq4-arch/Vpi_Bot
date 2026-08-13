@@ -14,6 +14,8 @@ class GameSettings(BaseModel):
     max_country_area: float
     root_admin_id: int = 1577409963
     admin_chat_id: int = -5316077477
+    public_chat_id: int | None = None
+    public_chat_thread_id: int | None = None
 
 class BuildingConfig(BaseModel):
     building_id: int
@@ -30,6 +32,8 @@ class ItemConfig(BaseModel):
     name: str
     required_factory_id: int
     output_per_factory: float
+    secondary_factory_id: int | None = None
+    secondary_factory_count: int = 0
 
 class ConfigMap(BaseModel):
     game_settings: GameSettings
@@ -40,17 +44,23 @@ class ConfigMap(BaseModel):
 _config_cache: ConfigMap | None = None
 
 def load_config(path: str = "config.json") -> ConfigMap:
-    global _config_cache
-    if not _config_cache:
-        import os
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        full_path = os.path.join(base_dir, path)
-        with open(full_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            _config_cache = ConfigMap.model_validate(data)
-    return _config_cache
+    import os
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    full_path = os.path.join(base_dir, path)
+    with open(full_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+        return ConfigMap.model_validate(data)
 
 def get_config() -> ConfigMap:
-    if not _config_cache:
-        return load_config()
-    return _config_cache
+    # Always reload config for now so changes take effect immediately
+    return load_config()
+
+def save_config(config: ConfigMap, path: str = "config.json"):
+    import os
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    full_path = os.path.join(base_dir, path)
+    with open(full_path, "w", encoding="utf-8") as f:
+        # Dump model, exclude unset or defaults if needed, but here we can just dump dict
+        # wait, we have "_comment_game_settings" in original json which pydantic drops.
+        # It's better to just read JSON as dict, modify it, and write it back.
+        pass

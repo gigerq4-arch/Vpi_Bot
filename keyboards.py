@@ -45,3 +45,13 @@ def get_spy_operations_keyboard(target_id: int, inflation: float = 0.0) -> Inlin
     builder.button(text=f"💥 Диверсия ВПК ({90 * mult:.1f} ОА)", callback_data=f"spy_op_{target_id}_6")
     builder.adjust(1)
     return builder.as_markup()
+
+def get_reform_confirm_keyboard(amount: float) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"reform_yes_{amount}"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="reform_no")
+            ]
+        ]
+    )
