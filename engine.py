@@ -29,7 +29,7 @@ class ItemConfig(BaseModel):
     category: str
     name: str
     required_factory_id: int
-    output_per_factory: int
+    output_per_factory: float
 
 class ConfigMap(BaseModel):
     game_settings: GameSettings
