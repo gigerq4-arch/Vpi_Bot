@@ -39,16 +39,19 @@ async def cmd_frostpunk(message: Message):
         power_lvl = getattr(country, "gen_power_level", 1)
         radius_lvl = getattr(country, "gen_radius_level", 1)
         
+        next_power_cost = get_power_upgrade_cost(power_lvl)
+        next_radius_cost = get_radius_upgrade_cost(radius_lvl)
+        
         text = (
             f"❄️ <b>Меню ивента «Фростпанк»</b>\n"
             f"------------------------------------\n"
             f"Генератор дает тепло и защищает население от морозов.\n\n"
             f"<b>Сборка Генератора (Детали):</b> {gen_count:.1f} шт.\n"
             f"<b>Назначено гражданских фабрик:</b> {assigned_factories}\n\n"
-            f"⚡️ <b>Мощность:</b> Уровень {power_lvl}\n"
-            f"<i>(Увеличивает базовую рождаемость)</i>\n\n"
-            f"📡 <b>Радиус:</b> Уровень {radius_lvl}\n"
-            f"<i>(Увеличивает количество людей, защищенных от холода)</i>\n\n"
+            f"⚡️ <b>Мощность:</b> Уровень {power_lvl} (Улучшение: {next_power_cost} B$)\n"
+            f"<i>(Каждое улучшение дает +0.05% к рождаемости)</i>\n\n"
+            f"📡 <b>Радиус:</b> Уровень {radius_lvl} (Улучшение: {next_radius_cost} B$)\n"
+            f"<i>(Каждое улучшение: +500 000 к вместимости и +2% к стабильности)</i>\n\n"
             f"Используйте кнопки ниже для управления проектом."
         )
         await message.answer(text, reply_markup=get_frostpunk_keyboard(), parse_mode="HTML")
