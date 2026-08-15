@@ -50,9 +50,6 @@ class Country(Base):
     # Additional state for mechanics
     martial_law: Mapped[bool] = mapped_column(Boolean, default=False)
     
-    # Frostpunk
-    gen_power_level: Mapped[int] = mapped_column(Integer, default=1)
-    gen_radius_level: Mapped[int] = mapped_column(Integer, default=1)
 
     owner: Mapped["User"] = relationship("User", back_populates="country")
     buildings: Mapped[list["CountryBuilding"]] = relationship("CountryBuilding", back_populates="country")
@@ -171,6 +168,16 @@ if "postgresql+asyncpg://" in DATABASE_URL:
 engine = create_async_engine(DATABASE_URL, echo=False, connect_args=connect_args if "connect_args" in locals() else {}, pool_pre_ping=True, pool_recycle=1800)
 async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
+class ExpandRequest(Base):
+    __tablename__ = 'expand_requests'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger)
+    army: Mapped[int] = mapped_column(Integer)
+    population: Mapped[int] = mapped_column(Integer)
+    vehicles: Mapped[str] = mapped_column(String) # JSON string
+    photo_id: Mapped[str] = mapped_column(String)
+
+
 async def init_db():
     async with engine.begin() as conn:
         # Create all tables
@@ -189,8 +196,6 @@ async def init_db():
         "ALTER TABLE countries ADD COLUMN lab_assigned_phase_5 INTEGER DEFAULT 0;",
         "ALTER TABLE countries ADD COLUMN last_expand_turn INTEGER DEFAULT -3;",
         "ALTER TABLE countries ADD COLUMN growth_modifier FLOAT DEFAULT 0.0;",
-        "ALTER TABLE countries ADD COLUMN gen_power_level INTEGER DEFAULT 1;",
-        "ALTER TABLE countries ADD COLUMN gen_radius_level INTEGER DEFAULT 1;",
         "CREATE TABLE IF NOT EXISTS country_events (id SERIAL PRIMARY KEY, country_id INTEGER REFERENCES countries(id), description VARCHAR, tax_modifier FLOAT DEFAULT 0.0, stability_modifier FLOAT DEFAULT 0.0, war_support_modifier FLOAT DEFAULT 0.0, turns_left INTEGER);"
     ]
     
@@ -209,11 +214,3 @@ async def init_db():
             session.add(GameState(turn_number=1))
             await session.commit()
 
-class ExpandRequest(Base):
-    __tablename__ = 'expand_requests'
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(BigInteger)
-    army: Mapped[int] = mapped_column(Integer)
-    population: Mapped[int] = mapped_column(Integer)
-    vehicles: Mapped[str] = mapped_column(String) # JSON string
-    photo_id: Mapped[str] = mapped_column(String)

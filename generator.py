@@ -127,13 +127,13 @@ async def fp_upgrade_power_cb(callback: CallbackQuery):
         country.treasury -= cost
         country.gen_power_level = lvl + 1
         
-        country.growth_modifier += 0.05
+        country.growth_modifier += 0.15
         
         await session.commit()
         await callback.message.edit_text(
             f"✅ <b>Мощность генератора улучшена до уровня {lvl + 1}!</b>\n\n"
             f"Потрачено: {cost} B$\n"
-            f"Рождаемость увеличена на +0.05%!",
+            f"Рождаемость увеличена на +0.15%!",
             parse_mode="HTML"
         )
     await callback.answer()

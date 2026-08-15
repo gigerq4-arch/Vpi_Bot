@@ -47,24 +47,9 @@ def get_spy_operations_keyboard(target_id: int, inflation: float = 0.0) -> Inlin
     return builder.as_markup()
 
 
-def get_frostpunk_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🏭 Назначить заводы на Генератор", callback_data="fp_assign_gen")],
-            [InlineKeyboardButton(text="🔥 Улучшить мощность", callback_data="fp_upgrade_power")],
-            [InlineKeyboardButton(text="📡 Улучшить радиус", callback_data="fp_upgrade_radius")]
-        ]
-    )
+def get_guide_main_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="К списку команд", callback_data="help_main"))
+    return builder.as_markup()
 
-def get_guide_main_keyboard(show_events: bool = False) -> InlineKeyboardMarkup:
-    kb = []
-    if show_events:
-        kb.append([InlineKeyboardButton(text="❄️ Временные ивенты", callback_data="guide_events")])
-    return InlineKeyboardMarkup(inline_keyboard=kb)
 
-def get_guide_events_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="guide_main")]
-        ]
-    )

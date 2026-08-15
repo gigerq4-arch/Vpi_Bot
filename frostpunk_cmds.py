@@ -49,7 +49,7 @@ async def cmd_frostpunk(message: Message):
             f"<b>Сборка Генератора (Детали):</b> {gen_count:.1f} шт.\n"
             f"<b>Назначено гражданских фабрик:</b> {assigned_factories}\n\n"
             f"⚡️ <b>Мощность:</b> Уровень {power_lvl} (Улучшение: {next_power_cost} B$)\n"
-            f"<i>(Каждое улучшение дает +0.05% к рождаемости)</i>\n\n"
+            f"<i>(Каждое улучшение дает +0.15% к рождаемости и +5 к стабильности)</i>\n\n"
             f"📡 <b>Радиус:</b> Уровень {radius_lvl} (Улучшение: {next_radius_cost} B$)\n"
             f"<i>(Каждое улучшение: +500 000 к вместимости и +2% к стабильности)</i>\n\n"
             f"Используйте кнопки ниже для управления проектом."
@@ -129,13 +129,15 @@ async def fp_upgrade_power_cb(callback: CallbackQuery):
         country.treasury -= cost
         country.gen_power_level = lvl + 1
         
-        country.growth_modifier += 0.05
+        country.growth_modifier += 0.15
+        country.stability += 5.0
+        if country.stability > 100: country.stability = 100
         
         await session.commit()
         await callback.message.edit_text(
             f"✅ <b>Мощность генератора улучшена до уровня {lvl + 1}!</b>\n\n"
             f"Потрачено: {cost} B$\n"
-            f"Рождаемость увеличена на +0.05%!",
+            f"Рождаемость увеличена на +0.15%, а стабильность на +5!",
             parse_mode="HTML"
         )
     await callback.answer()
@@ -167,3 +169,97 @@ async def fp_upgrade_radius_cb(callback: CallbackQuery):
             parse_mode="HTML"
         )
     await callback.answer()
+
+@router.message(Command("gen_assign"))
+async def cmd_gen_assign(message: Message):
+    from engine import get_config
+    cfg = get_config()
+    if not getattr(cfg.game_settings, 'frostpunk_event', False):
+        return
+    args = message.text.split()
+    if len(args) != 2:
+        await message.answer("⚠️ Использование: `/gen_assign [кол-во]`", parse_mode="Markdown")
+        return
+        
+    try:
+        count = int(args[1])
+        if count <= 0: raise ValueError
+    except ValueError:
+        await message.answer("❌ Ошибка: Введите корректное число.")
+        return
+
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country: return
+        
+        cb = await session.scalar(
+            select(CountryBuilding.total_count)
+            .where(CountryBuilding.country_id == country.id, CountryBuilding.building_id == 5)
+        )
+        total_factories = cb if cb else 0
+        
+        prod = await session.scalar(
+            select(CountryProduction)
+            .where(CountryProduction.country_id == country.id, CountryProduction.item_id == 45)
+        )
+        assigned = prod.assigned_factories if prod else 0
+        free_factories = total_factories - assigned
+        
+        if free_factories < count:
+            await message.answer(f"❌ Ошибка: У вас недостаточно свободных гражданских фабрик. Свободно: {free_factories}.")
+            return
+            
+        if not prod:
+            prod = CountryProduction(country_id=country.id, item_id=45, assigned_factories=count)
+            session.add(prod)
+        else:
+            prod.assigned_factories += count
+            
+        await session.commit()
+        await message.answer(f"✅ Добавлено {count} фабрик на постройку Генераторов. Всего назначено: {prod.assigned_factories}")
+
+@router.message(Command("gen_remove"))
+async def cmd_gen_remove(message: Message):
+    from engine import get_config
+    cfg = get_config()
+    if not getattr(cfg.game_settings, 'frostpunk_event', False):
+        return
+    args = message.text.split()
+    if len(args) != 2:
+        await message.answer("⚠️ Использование: `/gen_remove [кол-во|all]`", parse_mode="Markdown")
+        return
+        
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country: return
+        
+        prod = await session.scalar(
+            select(CountryProduction)
+            .where(CountryProduction.country_id == country.id, CountryProduction.item_id == 45)
+        )
+        assigned = prod.assigned_factories if prod else 0
+        
+        if assigned == 0:
+            await message.answer("❌ У вас не назначено ни одной фабрики на генератор.")
+            return
+
+        count_str = args[1].lower()
+        if count_str == 'all':
+            remove_count = assigned
+        else:
+            try:
+                remove_count = int(count_str)
+                if remove_count <= 0: raise ValueError
+            except ValueError:
+                await message.answer("❌ Ошибка: Введите корректное число или 'all'.")
+                return
+
+        if remove_count > assigned:
+            remove_count = assigned
+            
+        prod.assigned_factories -= remove_count
+        if prod.assigned_factories == 0:
+            await session.delete(prod)
+            
+        await session.commit()
+        await message.answer(f"✅ Снято {remove_count} фабрик с постройки Генераторов. Осталось назначено: {assigned - remove_count}")

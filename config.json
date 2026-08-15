@@ -4,16 +4,15 @@
     "start_year": 1930,
     "turn_duration_days": 182,
     "base_population_growth": 0.5,
-    "tax_per_taxpayer_billion": 0.0000005,
-    "military_upkeep_per_soldier_billion": 0.0000125,
+    "tax_per_taxpayer_billion": 1e-06,
+    "military_upkeep_per_soldier_billion": 1.25e-05,
     "military_hire_cost_billion": 0.00015,
     "max_sum_stability_war_support": 150.0,
     "max_country_area": 150000.0,
     "root_admin_id": 1577409963,
     "admin_chat_id": -5316077477,
     "public_chat_id": -1004461491504,
-    "public_chat_thread_id": 2520,
-    "frostpunk_event": true
+    "public_chat_thread_id": 2520
   },
   "_comment_buildings": "Здания в игре. income_billion - пассивный доход каждый ход. Вы можете добавить сюда свои здания. building_id должен быть уникальным.",
   "buildings": [
@@ -79,140 +78,140 @@
       "category": "Огнестрел",
       "name": "Винтовки",
       "required_factory_id": 1,
-      "output_per_factory": 10000
+      "output_per_factory": 10000.0
     },
     {
       "item_id": 2,
       "category": "Огнестрел",
       "name": "Пистолеты-пулеметы",
       "required_factory_id": 1,
-      "output_per_factory": 4000
+      "output_per_factory": 4000.0
     },
     {
       "item_id": 3,
       "category": "Огнестрел",
       "name": "Ручные пулеметы",
       "required_factory_id": 1,
-      "output_per_factory": 1500
+      "output_per_factory": 1500.0
     },
     {
       "item_id": 4,
       "category": "Артиллерия",
       "name": "Полевая артиллерия",
       "required_factory_id": 1,
-      "output_per_factory": 250
+      "output_per_factory": 200.0
     },
     {
       "item_id": 5,
       "category": "Артиллерия",
       "name": "Противотанковые пушки",
       "required_factory_id": 1,
-      "output_per_factory": 250
+      "output_per_factory": 150.0
     },
     {
       "item_id": 6,
       "category": "Артиллерия",
       "name": "Зенитная артиллерия",
       "required_factory_id": 1,
-      "output_per_factory": 250
+      "output_per_factory": 175.0
     },
     {
       "item_id": 7,
       "category": "Бронетехника",
       "name": "Бронетранспортеры",
       "required_factory_id": 1,
-      "output_per_factory": 300
+      "output_per_factory": 250.0
     },
     {
       "item_id": 8,
       "category": "Бронетехника",
       "name": "Легкие танки",
       "required_factory_id": 1,
-      "output_per_factory": 150
+      "output_per_factory": 100.0
     },
     {
       "item_id": 9,
       "category": "Бронетехника",
       "name": "Средние танки",
       "required_factory_id": 1,
-      "output_per_factory": 75
+      "output_per_factory": 50.0
     },
     {
       "item_id": 10,
       "category": "Бронетехника",
       "name": "Тяжелые танки",
       "required_factory_id": 1,
-      "output_per_factory": 30
+      "output_per_factory": 25.0
     },
     {
       "item_id": 11,
       "category": "Авиация",
       "name": "Истребители",
       "required_factory_id": 2,
-      "output_per_factory": 50
+      "output_per_factory": 50.0
     },
     {
       "item_id": 12,
       "category": "Авиация",
       "name": "Штурмовики",
       "required_factory_id": 2,
-      "output_per_factory": 30
+      "output_per_factory": 30.0
     },
     {
       "item_id": 13,
       "category": "Авиация",
       "name": "Тактические бомбардировщики",
       "required_factory_id": 2,
-      "output_per_factory": 15
+      "output_per_factory": 15.0
     },
     {
       "item_id": 14,
       "category": "Авиация",
       "name": "Стратегические бомбардировщики",
       "required_factory_id": 2,
-      "output_per_factory": 5
+      "output_per_factory": 5.0
     },
     {
       "item_id": 15,
       "category": "Флот",
       "name": "Подводные лодки",
       "required_factory_id": 3,
-      "output_per_factory": 10
+      "output_per_factory": 7.0
     },
     {
       "item_id": 16,
       "category": "Флот",
       "name": "Эсминцы",
       "required_factory_id": 3,
-      "output_per_factory": 5
+      "output_per_factory": 4.0
     },
     {
       "item_id": 17,
       "category": "Флот",
       "name": "Легкие крейсера",
       "required_factory_id": 3,
-      "output_per_factory": 3
+      "output_per_factory": 2.0
     },
     {
       "item_id": 18,
       "category": "Флот",
       "name": "Тяжелые крейсера",
       "required_factory_id": 3,
-      "output_per_factory": 2
+      "output_per_factory": 1.0
     },
     {
       "item_id": 19,
       "category": "Флот",
       "name": "Линкоры",
       "required_factory_id": 3,
-      "output_per_factory": 1
+      "output_per_factory": 0.5
     },
     {
       "item_id": 20,
       "category": "Флот",
       "name": "Авианосцы",
       "required_factory_id": 3,
-      "output_per_factory": 1
+      "output_per_factory": 0.5
     },
     {
       "item_id": 21,
@@ -227,162 +226,155 @@
       "category": "Огнестрел",
       "name": "Стационарные пулеметы",
       "required_factory_id": 1,
-      "output_per_factory": 750,
+      "output_per_factory": 500.0,
       "item_id": 22
     },
     {
       "category": "Огнестрел",
       "name": "Самозарядные винтовки",
       "required_factory_id": 1,
-      "output_per_factory": 7500,
+      "output_per_factory": 6000.0,
       "item_id": 23
     },
     {
       "category": "Огнестрел",
       "name": "Пистолеты",
       "required_factory_id": 1,
-      "output_per_factory": 8500,
+      "output_per_factory": 7500.0,
       "item_id": 24
     },
     {
       "category": "Огнестрел",
       "name": "Противотанковые винтовки",
       "required_factory_id": 1,
-      "output_per_factory": 500,
+      "output_per_factory": 250.0,
       "item_id": 25
     },
     {
       "category": "Артиллерия",
       "name": "Гаубицы",
       "required_factory_id": 1,
-      "output_per_factory": 100,
+      "output_per_factory": 75.0,
       "item_id": 26
     },
     {
       "category": "Артиллерия",
       "name": "Береговые орудия",
       "required_factory_id": 1,
-      "output_per_factory": 30,
+      "output_per_factory": 20.0,
       "item_id": 27
     },
     {
       "category": "Артиллерия",
       "name": "Горные пушки",
       "required_factory_id": 1,
-      "output_per_factory": 400,
+      "output_per_factory": 250.0,
       "item_id": 28
     },
     {
       "category": "Артиллерия",
       "name": "Осадные орудия",
       "required_factory_id": 1,
-      "output_per_factory": 10,
+      "output_per_factory": 10.0,
       "item_id": 29
     },
     {
       "category": "Артиллерия",
       "name": "Минометы",
       "required_factory_id": 1,
-      "output_per_factory": 500,
+      "output_per_factory": 300.0,
       "item_id": 30
     },
     {
       "category": "Бронетехника",
       "name": "САУ",
       "required_factory_id": 1,
-      "output_per_factory": 50,
+      "output_per_factory": 50.0,
       "item_id": 31
     },
     {
       "category": "Бронетехника",
       "name": "ЗСУ",
       "required_factory_id": 1,
-      "output_per_factory": 100,
+      "output_per_factory": 75.0,
       "item_id": 32
     },
     {
       "category": "Бронетехника",
       "name": "Танкетки",
       "required_factory_id": 1,
-      "output_per_factory": 300,
+      "output_per_factory": 300.0,
       "item_id": 33
     },
     {
       "category": "Бронетехника",
       "name": "Бронеавтомобили",
       "required_factory_id": 1,
-      "output_per_factory": 200,
+      "output_per_factory": 200.0,
       "item_id": 34
     },
     {
       "category": "Авиация",
       "name": "Самолеты десанта",
       "required_factory_id": 2,
-      "output_per_factory": 25,
+      "output_per_factory": 25.0,
       "item_id": 35
     },
     {
       "category": "Авиация",
       "name": "Разведывательные самолеты",
       "required_factory_id": 2,
-      "output_per_factory": 50,
+      "output_per_factory": 50.0,
       "item_id": 36
     },
     {
       "category": "Авиация",
       "name": "Аэропланы",
       "required_factory_id": 2,
-      "output_per_factory": 110,
+      "output_per_factory": 100.0,
       "item_id": 37
     },
     {
       "category": "Флот",
       "name": "Десантные корабли",
       "required_factory_id": 3,
-      "output_per_factory": 15,
+      "output_per_factory": 10.0,
       "item_id": 38
     },
     {
       "category": "Огнестрел",
       "name": "Огнеметы",
       "required_factory_id": 1,
-      "output_per_factory": 500,
+      "output_per_factory": 250.0,
       "item_id": 39
     },
     {
       "category": "Снаряжение",
       "name": "Гранаты",
       "required_factory_id": 1,
-      "output_per_factory": 10000,
+      "output_per_factory": 10000.0,
       "item_id": 40
     },
     {
       "category": "Снаряжение",
       "name": "Штыки",
       "required_factory_id": 1,
-      "output_per_factory": 20000,
+      "output_per_factory": 20000.0,
       "item_id": 41
     },
     {
       "category": "Снаряжение",
       "name": "Каски",
       "required_factory_id": 1,
-      "output_per_factory": 15000,
+      "output_per_factory": 15000.0,
       "item_id": 42
     },
     {
       "category": "Бронетехника",
       "name": "Грузовые автомобили",
       "required_factory_id": 1,
-      "output_per_factory": 1000,
+      "output_per_factory": 500.0,
       "item_id": 44
-    },
-    {
-      "category": "Спецпроекты",
-      "name": "Генератор",
-      "required_factory_id": 5,
-      "output_per_factory": 0.1,
-      "item_id": 45
     }
   ]
 }

@@ -16,7 +16,6 @@ class GameSettings(BaseModel):
     admin_chat_id: int = -5316077477
     public_chat_id: int | None = None
     public_chat_thread_id: int | None = None
-    frostpunk_event: bool = False
 
 class BuildingConfig(BaseModel):
     building_id: int
