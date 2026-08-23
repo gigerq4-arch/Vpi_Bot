@@ -16,6 +16,7 @@ class Registration(StatesGroup):
     ideology = State()
     ruler = State()
     party = State()
+    religion = State()
     stats = State() # Ожидаем ввод формата: "Стабильность Поддержка" (напр. "80 20")
     area = State()
     flag = State()
@@ -156,7 +157,7 @@ async def cmd_help(message: Message):
         "• /guide — Руководство для новичков\n"
         "• /profile, /eco — Статистика и экономика страны\n"
         "• /army — Управление армией (найм, демобилизация)\n"
-        "• /buildings, /build — Справочник и постройка зданий\n"
+        "• /buildings, /build — Справочник и постройка зданий\n        • /destroy — Снос здания (без возврата средств)\n"
         "• /production, /prod — Просмотр состояния ВПК и складов\n"
         "• /rate, /rates — Нормы производства техники (за 1 завод)\n"
         "• /set_prod, /unset_prod — Назначение и снятие заводов\n"
@@ -164,7 +165,6 @@ async def cmd_help(message: Message):
         "• /spy — Шпионаж и диверсии\n"
         "• /trade — Торговля с другими странами\n"
         
-        "• /gen_assign, /gen_remove — Назначить/Снять гражданские фабрики\n"
         "• /nuclear, /nuke — Ядерная программа\n"
         "• /lab_assign, /lab_remove — Назначить/Снять военные заводы и лаборатории\n"
     )
@@ -230,13 +230,20 @@ async def cmd_profile(message: Message):
         # Calculate stats
         total_population = country.taxpayers + country.military
         
-        pop_growth = cfg.game_settings.base_population_growth + getattr(country, 'growth_modifier', 0.0)
+        # Stability Modifiers
+        stab = country.stability
+        stab_tax_mult = 1.10 if stab >= 80 else (0.50 if stab < 20 else (0.80 if stab < 40 else 1.0))
+        stab_growth_bonus = 0.2 if stab >= 90 else (-0.6 if stab < 20 else (-0.2 if stab < 40 else 0.0))
+
+        pop_growth = cfg.game_settings.base_population_growth + getattr(country, 'growth_modifier', 0.0) + stab_growth_bonus
+        pop_growth = round(pop_growth, 2)
         
         tax_income = country.taxpayers * cfg.game_settings.tax_per_taxpayer_billion
         if country.martial_law:
             tax_income *= 0.5 # Военное положение: штраф 50% на налоги
             
-        military_upkeep = country.military * cfg.game_settings.military_upkeep_per_soldier_billion
+        war_upkeep_mult = 0.9 if country.war_support >= 80 else 1.0
+        military_upkeep = country.military * cfg.game_settings.military_upkeep_per_soldier_billion * war_upkeep_mult
         
         from database import CountryBuilding
         buildings = await session.scalars(select(CountryBuilding).where(CountryBuilding.country_id == country.id))
@@ -258,13 +265,21 @@ async def cmd_profile(message: Message):
             if b.building_id == 4:
                 agencies += b.total_count
 
+        # Apply stability modifier to total income
+        tax_income *= stab_tax_mult
+        factory_income *= stab_tax_mult
+        
         net_income = tax_income + factory_income - military_upkeep
 
         text = (
             f"👤 <b>Профиль страны: {country.name}</b>\n"
             f"------------------------------------\n"
+            f"🏛 Идеология: {country.ideology}\n"
+            f"🕍 Религия: {getattr(country, 'religion', 'Не указана')}\n"
+            f"👑 Правитель: {country.ruler}\n"
+            f"------------------------------------\n"
             f"💰 Казна: {country.treasury:.2f} B$\n"
-            f"👥 Население: {country.taxpayers:,} (Прирост: {pop_growth}%)\n"
+            f"👥 Население: {country.taxpayers / 1000000:.2f} млн. чел. (Прирост: {pop_growth}%)\n"
             f"💵 Налоги: {tax_income:.2f} B$\n"
         )
         
@@ -274,18 +289,23 @@ async def cmd_profile(message: Message):
                 f"🏭 Доход с фабрик: {factory_income:.2f} B$\n"
             )
             
+        stab_eff = ""
+        if stab_tax_mult == 1.1: stab_eff = " (+10% к налогам и фабрикам)"
+        elif stab_tax_mult == 0.8: stab_eff = " (-20% к налогам и фабрикам)"
+        elif stab_tax_mult == 0.5: stab_eff = " (-50% к налогам и фабрикам)"
+            
         text += (
             f"📈 Инфляция: {country.inflation:.1f}%\n"
+            f"⚖️ Эффект стабильности:{stab_eff}\n"
             f"⚖️ Стабильность: {country.stability:.2f}%\n"
-            f"🪖 Поддержка войны: {country.war_support:.1f}%\n"
-            f"🪖 Регулярная армия: {country.military:,}, расход: {military_upkeep:.2f} B$\n"
+            f"🪖 Поддержка войны: {country.war_support:.1f}%" + (" (-10% к содержанию, +10% к пр-ву)\n" if country.war_support >= 80 else "\n") + (
+            f"🪖 Регулярная армия: {country.military:,} чел., расход: {military_upkeep:.2f} B$\n")
             f"💰 Чистый доход: {net_income:.2f} B$\n\n"
             f"🕵️ Очки агентуры (ОА): {country.intel_points:.1f} (Агентур: {agencies})\n"
             f"🛡 Контрразведка: {country.counter_intel_points:.1f} ОА"
         )
         
         await message.answer(text, parse_mode="HTML")
-
 @router.callback_query(F.data == "register_country")
 async def start_registration(callback: CallbackQuery, state: FSMContext):
     async with async_session() as session:
@@ -318,31 +338,55 @@ async def process_ruler(message: Message, state: FSMContext):
 @router.message(Registration.party)
 async def process_party(message: Message, state: FSMContext):
     await state.update_data(party=message.text)
+    await state.set_state(Registration.religion)
+    await message.answer("◆ Введите государственную религию:")
+
+@router.message(Registration.religion)
+async def process_religion(message: Message, state: FSMContext):
+    await state.update_data(religion=message.text)
     await state.set_state(Registration.stats)
+    
+    from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🕊 Экономика и процветание (100% / 50%)")],
+            [KeyboardButton(text="⚔️ Милитаризм и экспансия (50% / 100%)")],
+            [KeyboardButton(text="⚖️ Золотая середина (75% / 75%)")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+    
     await message.answer(
-        "◆ Введите Стабильность и Поддержку войны через пробел.\n"
+        "◆ Выберите путь развития вашей страны:\n"
         "------------------------------------\n"
-        "• Формат: `80 20`\n"
-        "• Сумма не должна превышать 150%.",
-        parse_mode="Markdown"
+        "От этого выбора будет зависеть баланс Стабильности и Поддержки войны.\n\n"
+        "🕊 <b>Экономика и процветание:</b> Стабильность 100%, Поддержка войны 50%\n(<b>+10%</b> к налогам и фабрикам, <b>+0.2%</b> к приросту населения каждый ход).\n\n"
+        "⚔️ <b>Милитаризм:</b> Стабильность 50%, Поддержка войны 100%\n(<b>-20%</b> к налогам и фабрикам, отток населения <b>-0.2%</b>, но <b>-10%</b> к содержанию армии и <b>+10%</b> к производству оружия).\n\n"
+        "⚖️ <b>Золотая середина:</b> Стабильность 75%, Поддержка войны 75%\n(Без бонусов и без штрафов).\n\n"
+        "<i>(Выбирайте с умом, изменить этот параметр будет тяжело)</i>",
+        reply_markup=kb,
+        parse_mode="HTML"
     )
 
 @router.message(Registration.stats)
 async def process_stats(message: Message, state: FSMContext):
-    try:
-        parts = message.text.split()
-        if len(parts) != 2:
-            raise ValueError
-        stab = float(parts[0])
-        war = float(parts[1])
-        if stab + war > 150.0:
-            await message.answer("Ошибка: Сумма стабильности и поддержки войны не должна превышать 150. Попробуйте еще раз.")
-            return
-        await state.update_data(stability=stab, war_support=war)
-        await state.set_state(Registration.area)
-        await message.answer("◆ Введите площадь страны в кв. км (не более 150000):")
-    except ValueError:
-        await message.answer("Ошибка ввода. Пожалуйста, введите два числа через пробел (например: `80 20`).", parse_mode="Markdown")
+    text = message.text
+    if "100%" in text and "50%" in text:
+        stab, war = 100.0, 50.0
+    elif "50%" in text and "100%" in text:
+        stab, war = 50.0, 100.0
+    elif "75%" in text and "75%" in text:
+        stab, war = 75.0, 75.0
+    else:
+        await message.answer("❌ Пожалуйста, используйте кнопки на клавиатуре для выбора.")
+        return
+        
+    await state.update_data(stability=stab, war_support=war)
+    await state.set_state(Registration.area)
+    
+    from aiogram.types import ReplyKeyboardRemove
+    await message.answer("◆ Введите площадь страны в кв. км (не более 150000):", reply_markup=ReplyKeyboardRemove())
 
 @router.message(Registration.area)
 async def process_area(message: Message, state: FSMContext):
@@ -379,6 +423,7 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
         f"• Идеология: {data['ideology']}\n"
         f"• Правитель: {data['ruler']}\n"
         f"• Партия: {data['party']}\n"
+        f"• Религия: {data.get('religion', 'Не указана')}\n"
         f"• Стабильность: {data['stability']}%\n"
         f"• Поддержка войны: {data['war_support']}%\n"
         f"• Площадь: {data['area']} кв. км"
@@ -396,8 +441,8 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
         # Авто-апрув для админов (или если админов нет)
         country = Country(
             owner_id=user_id, name=data['name'], ideology=data['ideology'],
-            ruler=data['ruler'], party=data['party'], stability=data['stability'],
-            war_support=data['war_support'], area=data['area'],
+            ruler=data['ruler'], party=data['party'], religion=data.get('religion', 'Не указана'),
+            stability=data['stability'], war_support=data['war_support'], area=data['area'],
             flag_photo_id=data['flag'], map_photo_id=photo_id,
             treasury=10.0, taxpayers=1000000, military=1000, martial_law=False,
             built_this_turn=0, inflation=0.0, intel_points=0.0, counter_intel_points=0.0
@@ -405,13 +450,37 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
         async with async_session() as session:
             session.add(country)
             await session.commit()
+            
         await message.answer("✅ Ваша страна была автоматически одобрена!\nВведите /start для управления.")
+        
+        # Announce in public chat
+        public_chat = cfg.game_settings.public_chat_id
+        reg_thread = getattr(cfg.game_settings, 'registration_thread_id', None)
+        if public_chat:
+            short_anketa = (
+                f"🎉 <b>Новая страна на политической арене!</b>\n\n"
+                f"🏳️ <b>Название:</b> {data['name']}\n"
+                f"🏛 <b>Идеология:</b> {data['ideology']}\n"
+                f"👑 <b>Правитель:</b> {data['ruler']}\n"
+                f"🕍 <b>Религия:</b> {data.get('religion', 'Не указана')}"
+            )
+            try:
+                await bot.send_photo(
+                    chat_id=public_chat,
+                    message_thread_id=reg_thread,
+                    photo=data['flag'],
+                    caption=short_anketa,
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                import logging
+                logging.error(f"Failed to send public reg notification: {e}")
     else:
         # В реальной задаче кэшируем данные. Сейчас создадим страну и прикрепим статус, если отклонят - удалим.
         country = Country(
             owner_id=user_id, name=data['name'], ideology=data['ideology'],
-            ruler=data['ruler'], party=data['party'], stability=data['stability'],
-            war_support=data['war_support'], area=data['area'],
+            ruler=data['ruler'], party=data['party'], religion=data.get('religion', 'Не указана'),
+            stability=data['stability'], war_support=data['war_support'], area=data['area'],
             flag_photo_id=data['flag'], map_photo_id=photo_id,
             treasury=10.0, taxpayers=1000000, military=1000, martial_law=False,
             built_this_turn=0, inflation=0.0, intel_points=0.0, counter_intel_points=0.0
@@ -445,6 +514,34 @@ async def approve_country(callback: CallbackQuery, bot: Bot):
         await bot.send_message(user_id, "✅ Ваша страна одобрена администратором! Введите /start")
     except Exception:
         pass
+        
+    # Public announcement
+    cfg = get_config()
+    public_chat = cfg.game_settings.public_chat_id
+    reg_thread = getattr(cfg.game_settings, 'registration_thread_id', None)
+    
+    if public_chat:
+        async with async_session() as session:
+            country = await session.scalar(select(Country).where(Country.owner_id == user_id))
+            if country:
+                short_anketa = (
+                    f"🎉 <b>Новая страна на политической арене!</b>\n\n"
+                    f"🏳️ <b>Название:</b> {country.name}\n"
+                    f"🏛 <b>Идеология:</b> {country.ideology}\n"
+                    f"👑 <b>Правитель:</b> {country.ruler}\n"
+                    f"🕍 <b>Религия:</b> {getattr(country, 'religion', 'Не указана')}"
+                )
+                try:
+                    await bot.send_photo(
+                        chat_id=public_chat,
+                        message_thread_id=reg_thread,
+                        photo=country.flag_photo_id,
+                        caption=short_anketa,
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    import logging
+                    logging.error(f"Failed to send public reg notification: {e}")
 
 @router.callback_query(F.data.startswith("reject_"))
 async def reject_country(callback: CallbackQuery, bot: Bot):
@@ -503,7 +600,7 @@ async def toggle_martial_law(callback: CallbackQuery):
         )
         await callback.answer(f"Военное положение: {'ВКЛ' if country.martial_law else 'ВЫКЛ'}")
 
-@router.message(Command("production"))
+@router.message(Command("production", "prod"))
 async def cmd_production(message: Message):
     async with async_session() as session:
         country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
@@ -536,7 +633,7 @@ async def cmd_production(message: Message):
                 used_factories[i_cfg.required_factory_id] = used_factories.get(i_cfg.required_factory_id, 0) + cp.assigned_factories
                 
         for b_cfg in cfg.buildings:
-            if b_cfg.building_id == 4: # Исключаем агентуру (Фабрики теперь нужны для Генератора)
+            if b_cfg.building_id == 4: # Исключаем агентуру
                 continue
             cb = next((b for b in country_full.buildings if b.building_id == b_cfg.building_id), None)
             total = cb.total_count if cb else 0
@@ -548,8 +645,6 @@ async def cmd_production(message: Message):
         # Group items by category
         items_by_category = {}
         for item in cfg.items:
-            if item.item_id == 45:  # Скрываем Генератор из обычного производства
-                continue
             items_by_category.setdefault(item.category, []).append(item)
             
         for category, items in items_by_category.items():
@@ -1080,6 +1175,54 @@ async def cmd_unset_prod(message: Message):
         await session.commit()
         await message.answer(f"✅ Снято {remove_count} заводов с линии ID {i_id}.")
 
+
+@router.message(Command("util"))
+async def cmd_util(message: Message):
+    args = message.text.split()
+    if len(args) < 3:
+        await message.answer("⚠️ Использование: `/util [ID техники] [Количество]`", parse_mode="Markdown")
+        return
+        
+    try:
+        item_id = int(args[1])
+        amount = int(args[2])
+        if amount <= 0: raise ValueError
+    except ValueError:
+        await message.answer("❌ ID техники и количество должны быть положительными числами.")
+        return
+        
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country:
+            await message.answer("❌ У вас нет страны!")
+            return
+            
+        from database import CountryStockpile
+        stock = await session.scalar(
+            select(CountryStockpile)
+            .where(CountryStockpile.country_id == country.id, CountryStockpile.item_id == item_id)
+        )
+        
+        if not stock or stock.amount < amount:
+            await message.answer(f"❌ У вас нет столько техники (ID: {item_id}) на складе!")
+            return
+            
+        stock.amount -= amount
+        
+        # Optionally, give some money back? 
+        # The user said "утилизации денег" which might mean they want money back.
+        # Let's give back a small fraction of cost, or maybe just scrap it.
+        # Let's read config
+        cfg = get_config()
+        i_cfg = next((i for i in cfg.items if i.item_id == item_id), None)
+        item_name = i_cfg.name if i_cfg else "Неизвестно"
+        
+        if stock.amount == 0:
+            await session.delete(stock)
+            
+        await session.commit()
+        await message.answer(f"✅ Успешно утилизировано {amount} шт. техники: {item_name}.")
+
 @router.message(Command("next_turn"))
 async def cmd_next_turn(message: Message, bot: Bot):
     from database import GameState
@@ -1118,39 +1261,45 @@ async def cmd_next_turn(message: Message, bot: Bot):
             
             # 3. Авто-мобилизация
             if country.martial_law:
-                mob_percent = 0.001 + 0.009 * (country.war_support / 100.0)
+                mob_percent = 0.0001 + 0.0009 * (country.war_support / 100.0)
                 mob_amount = int(country.taxpayers * mob_percent)
                 country.taxpayers -= mob_amount
                 country.military += mob_amount
                     
+            # Stability Modifiers
+            stab = country.stability
+            stab_tax_mult = 1.10 if stab >= 80 else (0.50 if stab < 20 else (0.80 if stab < 40 else 1.0))
+            stab_growth_bonus = 0.2 if stab >= 90 else (-0.6 if stab < 20 else (-0.2 if stab < 40 else 0.0))
+
             # 4. Естественный прирост
-            base_mod = (cfg.game_settings.base_population_growth + getattr(country, "growth_modifier", 0.0)) / 100.0
+            base_mod = (cfg.game_settings.base_population_growth + getattr(country, "growth_modifier", 0.0) + stab_growth_bonus) / 100.0
             growth = int(country.taxpayers * base_mod)
             country.taxpayers += growth
+            if country.taxpayers < 0:
+                country.taxpayers = 0
 
             # 5. Финансы
             tax_income = country.taxpayers * cfg.game_settings.tax_per_taxpayer_billion
             if country.martial_law:
                 tax_income *= 0.5 # штраф -50%
                 
-            # Доход от всех зданий, учитывая генератор
+            # Доход от всех зданий
             factory_income = 0.0
-            used_for_gen = 0
             
             buildings = await session.scalars(select(CountryBuilding).where(CountryBuilding.country_id == country.id))
             
             for b in buildings:
                 b_cfg = next((x for x in cfg.buildings if x.building_id == b.building_id), None)
                 if b_cfg and getattr(b_cfg, 'income_billion', 0.0) > 0:
-                    if b.building_id == 5:
-                        free_factories = max(0, b.total_count - used_for_gen)
-                        factory_income += free_factories * b_cfg.income_billion
-                    else:
-                        factory_income += b.total_count * b_cfg.income_billion
+                    factory_income += b.total_count * b_cfg.income_billion
                         
+            tax_income *= stab_tax_mult
+            factory_income *= stab_tax_mult
+            
             tax_income += factory_income
                 
-            upkeep = country.military * cfg.game_settings.military_upkeep_per_soldier_billion
+            war_upkeep_mult = 0.9 if country.war_support >= 80 else 1.0
+            upkeep = country.military * cfg.game_settings.military_upkeep_per_soldier_billion * war_upkeep_mult
             
             country.treasury += tax_income
             country.treasury -= upkeep
@@ -1164,7 +1313,8 @@ async def cmd_next_turn(message: Message, bot: Bot):
             for cp in productions:
                 i_cfg = next((i for i in cfg.items if i.item_id == cp.item_id), None)
                 if i_cfg:
-                    produced = cp.assigned_factories * i_cfg.output_per_factory
+                    war_prod_mult = 1.1 if country.war_support >= 80 else 1.0
+                    produced = cp.assigned_factories * i_cfg.output_per_factory * war_prod_mult
                     cs = await session.scalar(
                         select(CountryStockpile)
                         .where(CountryStockpile.country_id == country.id, CountryStockpile.item_id == cp.item_id)
@@ -1190,7 +1340,6 @@ async def cmd_next_turn(message: Message, bot: Bot):
                     
                     if new_prog >= 100 and current_prog < 100:
                         setattr(country, lab_col, 0) # Автоматически снимаем лаборатории после завершения
-            frostpunk_report = ""
             
             
             personal_report = (
@@ -1214,16 +1363,12 @@ async def cmd_next_turn(message: Message, bot: Bot):
             except Exception:
                 pass
                 
-            report += f"[{country.name}]: 💰 {country.treasury:.2f} B$ | 📈 Прирост: {'+' if growth >= 0 else ''}{growth:,} чел.\n"
+
 
 
         await session.commit()
         
-        # Отправляем отчет админу
-        try:
-            await bot.send_message(message.from_user.id, report)
-        except Exception:
-            pass
+
             
         # Уведомление о новом ходе
         try:
@@ -1641,3 +1786,208 @@ async def cmd_add_item(message: Message, bot: Bot):
                 
         await session.commit()
         await message.answer(f"✅ У страны {country.name} техника '{item_cfg.name}' (ID {item_id}) изменена на {amount}. Теперь на складе: {stock.amount}")
+
+
+@router.message(Command("guide"))
+async def cmd_guide(message: Message):
+    text = (
+        "◆ Руководство по механикам ВПИ\n"
+        "------------------------------------\n"
+        "Добро пожаловать в бота управления страной!\n\n"
+        "📝 Регистрация: Название, Идеология, Правитель, Партия.\n\n"
+        "🏛 Экономика, Налоги и Демография (/profile)\n"
+        "• Казна в B$. Налоги поступают каждый ход от населения.\n"
+        "• Инфляция: массовое строительство перегревает экономику, снижая доход.\n"
+        "• <b>Стабильность:</b> Напрямую влияет на доходы и рождаемость.\n"
+        "  - <b>≥ 80%:</b> Экономический бум (+10% к налогам и доходу с фабрик), высокий прирост населения (+0.2% к базовому).\n"
+        "  - <b>< 40%:</b> Забастовки и миграция (-20% к доходам, -0.2% прирост).\n"
+        "  - <b>< 20%:</b> Коллапс (-50% к доходам, массовая убыль населения).\n\n"
+        "🏭 ВПК и Строительство (/buildings, /build)\n"
+        "• Заводы приносят пассивный доход и дают мощности.\n"
+        "• Нормы производства смотрите через /rate.\n"
+        "• /set_prod назначает заводы на выпуск вооружения.\n"
+        "• Ненужную технику можно разобрать (/util).\n\n"
+        "🪖 Армия (/army)\n"
+        "• Нанимайте солдат. Отрицательный баланс приводит к дезертирству!\n\n"
+        "🕵️ Шпионаж (/spy) и Торговля (/trade)\n"
+        "• Контрразведка: Агентурные сети пассивно генерируют Очки Разведки (ОА), которые автоматически защищают страну от диверсий врага.\n"
+        "• Через торговлю можно передавать технику и деньги союзникам.\n\n"
+        "☢️ Ядерная программа (/nuclear)\n"
+        "• Для производства бомб нужна 1 Лаборатория и 5 Военных заводов.\n"
+        "• Сначала исследуйте все этапы проекта, назначив заводы (/lab_assign), и только после этого можно производить само оружие.\n\n"
+        "⚠️ Каждый ход администратор начисляет налоги и завершает строительство."
+    )
+    await message.answer(text, parse_mode="HTML")
+
+
+# ==========================================
+# СИСТЕМА РЕФОРМ (С БЮДЖЕТОМ И ОПИСАНИЕМ)
+# ==========================================
+class ReformState(StatesGroup):
+    waiting_for_money = State()
+    waiting_for_desc = State()
+
+@router.message(Command("reform"))
+async def cmd_reform(message: Message, state: FSMContext):
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country:
+            await message.answer("❌ У вас нет страны!")
+            return
+            
+    await state.set_state(ReformState.waiting_for_money)
+    await message.answer(
+        "📜 <b>Проведение реформы</b>\n\n"
+        "Какую сумму (B$) вы хотите выделить на эту реформу?\n"
+        f"<i>Доступно в казне: {country.treasury:.2f} B$</i>",
+        parse_mode="HTML"
+    )
+
+@router.message(ReformState.waiting_for_money)
+async def process_reform_money(message: Message, state: FSMContext):
+    try:
+        amount = float(message.text.replace(',', '.'))
+        if amount < 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Введите корректное положительное число.")
+        return
+
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country:
+            await state.clear()
+            return
+            
+        if amount > country.treasury:
+            await message.answer(f"❌ Недостаточно средств! В казне всего: {country.treasury:.2f} B$")
+            return
+
+    await state.update_data(reform_amount=amount)
+    await state.set_state(ReformState.waiting_for_desc)
+    await message.answer(
+        "Напишите краткое описание реформы (или отправьте '-' если без описания):"
+    )
+
+@router.message(ReformState.waiting_for_desc)
+async def process_reform_desc(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    amount = data.get("reform_amount", 0.0)
+    desc = message.html_text
+    if desc.strip() == '-':
+        desc = "<i>Без описания</i>"
+
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country:
+            await state.clear()
+            return
+
+        # Deduct money
+        country.treasury -= amount
+        await session.commit()
+        
+        msg_text = (
+            f"✅ <b>Реформа успешно проведена!</b>\n\n"
+            f"📜 <b>Новая реформа: {country.name}</b>\n"
+            f"💰 Выделено средств: <b>{amount:.2f} B$</b>\n\n"
+            f"📝 Описание:\n{desc}"
+        )
+        
+        try:
+            await bot.send_message(chat_id=message.from_user.id, text=msg_text, parse_mode="HTML")
+            if message.chat.type != "private":
+                await message.answer(f"✅ Реформа успешно проведена! Списано {amount:.2f} B$. Подробности отправлены в ЛС.")
+        except Exception:
+            # Fallback if bot cannot DM the user
+            await message.answer(msg_text, parse_mode="HTML")
+
+    await state.clear()
+
+@router.message(Command("destroy", "demolish"))
+async def cmd_destroy(message: Message):
+    # Синтаксис: /destroy [building_id] [count]
+    args = message.text.split()
+    if len(args) != 3:
+        await message.answer(
+            "◆ Ошибка синтаксиса\n"
+            "------------------------------------\n"
+            "Использование: `/destroy [ID_здания] [Количество]`\n"
+            "Пример: `/destroy 1 2`",
+            parse_mode="Markdown"
+        )
+        return
+        
+    try:
+        b_id = int(args[1])
+        count = int(args[2])
+        if count <= 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Ошибка: ID здания и Количество должны быть положительными числами.")
+        return
+        
+    cfg = get_config()
+    building = next((b for b in cfg.buildings if b.building_id == b_id), None)
+    
+    if not building:
+        await message.answer(f"❌ Ошибка: Здание с ID {b_id} не найдено.")
+        return
+        
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country:
+            await message.answer("❌ У вас нет страны!")
+            return
+            
+        from database import CountryBuilding, CountryProduction
+        cb = await session.scalar(select(CountryBuilding).where(
+            CountryBuilding.country_id == country.id,
+            CountryBuilding.building_id == b_id
+        ))
+        
+        if not cb or cb.total_count < count:
+            await message.answer(f"❌ У вас нет столько зданий этого типа. Доступно для сноса: {cb.total_count if cb else 0}.")
+            return
+            
+        # Проверяем, не заняты ли эти здания на производстве
+        all_prods = await session.scalars(select(CountryProduction).where(CountryProduction.country_id == country.id))
+        all_prods = list(all_prods)
+        
+        used_b = 0
+        for cp in all_prods:
+            c_item = next((i for i in cfg.items if i.item_id == cp.item_id), None)
+            if c_item:
+                if c_item.required_factory_id == b_id:
+                    used_b += cp.assigned_factories
+                if getattr(c_item, 'secondary_factory_id', None) == b_id:
+                    used_b += cp.assigned_factories * getattr(c_item, 'secondary_factory_count', 1)
+        
+        if b_id == 6:
+            used_in_research = (getattr(country, 'lab_assigned_phase_1', 0) + 
+                                getattr(country, 'lab_assigned_phase_2', 0) + 
+                                getattr(country, 'lab_assigned_phase_3', 0) + 
+                                getattr(country, 'lab_assigned_phase_4', 0) + 
+                                getattr(country, 'lab_assigned_phase_5', 0))
+            used_b += used_in_research
+            
+        free_b = cb.total_count - used_b
+        
+        if count > free_b:
+            await message.answer(
+                f"❌ Ошибка: Вы пытаетесь снести здания, которые сейчас используются!\n"
+                f"Всего зданий: {cb.total_count}, занято: {used_b}, свободно: {free_b}.\n"
+                f"Сперва освободите их (снимите производство: `/unset_prod`, либо остановите изучение ядерной программы)."
+            )
+            return
+            
+        cb.total_count -= count
+        if cb.total_count == 0:
+            await session.delete(cb)
+            
+        await session.commit()
+        
+        await message.answer(
+            f"✅ Вы успешно снесли {count} шт. здания «{building.name}».\n"
+            f"Средства за снос не возвращаются."
+        )

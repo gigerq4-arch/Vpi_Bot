@@ -12,7 +12,8 @@
     "root_admin_id": 1577409963,
     "admin_chat_id": -5316077477,
     "public_chat_id": -1004461491504,
-    "public_chat_thread_id": 2520
+    "public_chat_thread_id": 2520,
+    "registration_thread_id": 9664
   },
   "_comment_buildings": "Здания в игре. income_billion - пассивный доход каждый ход. Вы можете добавить сюда свои здания. building_id должен быть уникальным.",
   "buildings": [

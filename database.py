@@ -35,6 +35,7 @@ class Country(Base):
     ideology: Mapped[str] = mapped_column(String)
     ruler: Mapped[str] = mapped_column(String)
     party: Mapped[str] = mapped_column(String)
+    religion: Mapped[str] = mapped_column(String, server_default='Не указана', default='Не указана')
     stability: Mapped[float] = mapped_column(Float)
     war_support: Mapped[float] = mapped_column(Float)
     area: Mapped[float] = mapped_column(Float)
