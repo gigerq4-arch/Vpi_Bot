@@ -16,6 +16,7 @@ class GameSettings(BaseModel):
     admin_chat_id: int = -5316077477
     public_chat_id: int | None = None
     public_chat_thread_id: int | None = None
+    registration_thread_id: int | None = None
 
 class BuildingConfig(BaseModel):
     building_id: int
@@ -55,4 +56,8 @@ def get_config() -> ConfigMap:
     return load_config()
 
 def save_config(config: ConfigMap, path: str = "config.json"):
-    pass
+    import os
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    full_path = os.path.join(base_dir, path)
+    with open(full_path, "w", encoding="utf-8") as f:
+        f.write(config.model_dump_json(indent=2))

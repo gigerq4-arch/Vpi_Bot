@@ -50,6 +50,7 @@ class Country(Base):
     counter_intel_points: Mapped[float] = mapped_column(Float, default=0.0)
     # Additional state for mechanics
     martial_law: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_approved: Mapped[bool] = mapped_column(Boolean, default=False)
     
 
     owner: Mapped["User"] = relationship("User", back_populates="country")
@@ -197,6 +198,7 @@ async def init_db():
         "ALTER TABLE countries ADD COLUMN lab_assigned_phase_5 INTEGER DEFAULT 0;",
         "ALTER TABLE countries ADD COLUMN last_expand_turn INTEGER DEFAULT -3;",
         "ALTER TABLE countries ADD COLUMN growth_modifier FLOAT DEFAULT 0.0;",
+        "ALTER TABLE countries ADD COLUMN is_approved BOOLEAN DEFAULT 1;",
         "CREATE TABLE IF NOT EXISTS country_events (id SERIAL PRIMARY KEY, country_id INTEGER REFERENCES countries(id), description VARCHAR, tax_modifier FLOAT DEFAULT 0.0, stability_modifier FLOAT DEFAULT 0.0, war_support_modifier FLOAT DEFAULT 0.0, turns_left INTEGER);"
     ]
     

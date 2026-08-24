@@ -1,7 +1,7 @@
 {
   "_comment_game_settings": "Настройки игры. start_year - стартовый год. base_population_growth - базовый процент роста. tax_per_taxpayer_billion - налог с 1 человека. military_hire_cost_billion - цена найма 1 солдата.",
   "game_settings": {
-    "start_year": 1930,
+    "start_year": 1700,
     "turn_duration_days": 182,
     "base_population_growth": 0.5,
     "tax_per_taxpayer_billion": 1e-06,
@@ -19,56 +19,47 @@
   "buildings": [
     {
       "building_id": 1,
-      "name": "Военный завод",
-      "short_name": "вз",
-      "description": "Производит военную технику и оружие.",
+      "name": "Оружейная мануфактура",
+      "short_name": "ом",
+      "description": "Производит мушкеты, артиллерию, порох и снаряжение.",
       "base_cost_billion": 1.55,
       "income_billion": 0.0,
       "enabled": true
     },
     {
       "building_id": 2,
-      "name": "Авиазавод",
-      "short_name": "аз",
-      "description": "Производит самолеты и авиацию.",
+      "name": "Конный завод",
+      "short_name": "кз",
+      "description": "Выращивает боевых коней для кавалерии и тяжеловозов для артиллерии.",
       "base_cost_billion": 2.4,
       "income_billion": 0.0,
       "enabled": true
     },
     {
       "building_id": 3,
-      "name": "Верфь",
-      "short_name": "вф",
-      "description": "Производит корабли и флот.",
+      "name": "Корабельная верфь",
+      "short_name": "кв",
+      "description": "Строит фрегаты, галеры и мощные линейные корабли.",
       "base_cost_billion": 4.0,
       "income_billion": 0.0,
       "enabled": true
     },
     {
       "building_id": 4,
-      "name": "Агентура",
-      "short_name": "аг",
-      "description": "Генерирует 10 очков агентуры (ОА) для шпионажа.",
+      "name": "Тайная канцелярия",
+      "short_name": "тк",
+      "description": "Генерирует 10 очков агентуры (ОА) для шпионажа и диверсий.",
       "base_cost_billion": 2.0,
       "income_billion": 0.0,
       "enabled": true
     },
     {
       "building_id": 5,
-      "name": "Фабрика",
-      "short_name": "фб",
+      "name": "Суконная мануфактура",
+      "short_name": "см",
       "description": "Гражданское здание, приносит пассивный доход 0.4 B$ за ход.",
       "base_cost_billion": 1.25,
       "income_billion": 0.4,
-      "enabled": true
-    },
-    {
-      "building_id": 6,
-      "name": "Ядерная лаборатория",
-      "short_name": "лаб",
-      "description": "Исследует и производит ядерное оружие.",
-      "base_cost_billion": 15.0,
-      "income_billion": 0.0,
       "enabled": true
     }
   ],
@@ -76,306 +67,157 @@
   "items": [
     {
       "item_id": 1,
-      "category": "Огнестрел",
-      "name": "Винтовки",
+      "category": "Огнестрельное оружие",
+      "name": "Кремневые мушкеты",
       "required_factory_id": 1,
-      "output_per_factory": 10000.0
+      "output_per_factory": 8000.0
     },
     {
       "item_id": 2,
-      "category": "Огнестрел",
-      "name": "Пистолеты-пулеметы",
-      "required_factory_id": 1,
-      "output_per_factory": 4000.0
-    },
-    {
-      "item_id": 3,
-      "category": "Огнестрел",
-      "name": "Ручные пулеметы",
+      "category": "Огнестрельное оружие",
+      "name": "Карабины",
       "required_factory_id": 1,
       "output_per_factory": 1500.0
     },
     {
-      "item_id": 4,
-      "category": "Артиллерия",
-      "name": "Полевая артиллерия",
+      "item_id": 3,
+      "category": "Огнестрельное оружие",
+      "name": "Мушкетоны",
       "required_factory_id": 1,
-      "output_per_factory": 200.0
+      "output_per_factory": 1000.0
+    },
+    {
+      "item_id": 4,
+      "category": "Огнестрельное оружие",
+      "name": "Пистоли",
+      "required_factory_id": 1,
+      "output_per_factory": 3000.0
     },
     {
       "item_id": 5,
-      "category": "Артиллерия",
-      "name": "Противотанковые пушки",
+      "category": "Холодное оружие и снаряжение",
+      "name": "Пехотные тесаки",
       "required_factory_id": 1,
-      "output_per_factory": 150.0
+      "output_per_factory": 6000.0
     },
     {
       "item_id": 6,
-      "category": "Артиллерия",
-      "name": "Зенитная артиллерия",
+      "category": "Холодное оружие и снаряжение",
+      "name": "Багинеты (штыки)",
       "required_factory_id": 1,
-      "output_per_factory": 175.0
+      "output_per_factory": 12000.0
     },
     {
       "item_id": 7,
-      "category": "Бронетехника",
-      "name": "Бронетранспортеры",
+      "category": "Холодное оружие и снаряжение",
+      "name": "Кавалерийские палаши",
       "required_factory_id": 1,
-      "output_per_factory": 250.0
+      "output_per_factory": 2000.0
     },
     {
       "item_id": 8,
-      "category": "Бронетехника",
-      "name": "Легкие танки",
+      "category": "Холодное оружие и снаряжение",
+      "name": "Сабли",
       "required_factory_id": 1,
-      "output_per_factory": 100.0
+      "output_per_factory": 2000.0
     },
     {
       "item_id": 9,
-      "category": "Бронетехника",
-      "name": "Средние танки",
+      "category": "Холодное оружие и снаряжение",
+      "name": "Пики",
       "required_factory_id": 1,
-      "output_per_factory": 50.0
+      "output_per_factory": 8000.0
     },
     {
       "item_id": 10,
-      "category": "Бронетехника",
-      "name": "Тяжелые танки",
+      "category": "Холодное оружие и снаряжение",
+      "name": "Алебарды",
       "required_factory_id": 1,
-      "output_per_factory": 25.0
+      "output_per_factory": 2000.0
     },
     {
       "item_id": 11,
-      "category": "Авиация",
-      "name": "Истребители",
-      "required_factory_id": 2,
-      "output_per_factory": 50.0
-    },
-    {
-      "item_id": 12,
-      "category": "Авиация",
-      "name": "Штурмовики",
-      "required_factory_id": 2,
-      "output_per_factory": 30.0
-    },
-    {
-      "item_id": 13,
-      "category": "Авиация",
-      "name": "Тактические бомбардировщики",
-      "required_factory_id": 2,
-      "output_per_factory": 15.0
+      "category": "Холодное оружие и снаряжение",
+      "name": "Военные мундиры",
+      "required_factory_id": 1,
+      "output_per_factory": 6000.0
     },
     {
       "item_id": 14,
-      "category": "Авиация",
-      "name": "Стратегические бомбардировщики",
+      "category": "Кавалерия",
+      "name": "Боевые кони",
       "required_factory_id": 2,
-      "output_per_factory": 5.0
+      "output_per_factory": 500.0
     },
     {
       "item_id": 15,
-      "category": "Флот",
-      "name": "Подводные лодки",
-      "required_factory_id": 3,
-      "output_per_factory": 7.0
+      "category": "Кавалерия",
+      "name": "Тяжеловозы (для артиллерии и обозов)",
+      "required_factory_id": 2,
+      "output_per_factory": 300.0
     },
     {
       "item_id": 16,
+      "category": "Артиллерия",
+      "name": "Полевые пушки (3-6 фунтов)",
+      "required_factory_id": 1,
+      "output_per_factory": 45.0
+    },
+    {
+      "item_id": 17,
+      "category": "Артиллерия",
+      "name": "Осадные мортиры",
+      "required_factory_id": 1,
+      "output_per_factory": 12.0
+    },
+    {
+      "item_id": 18,
+      "category": "Артиллерия",
+      "name": "Крепостные и корабельные орудия (12-24 фунта)",
+      "required_factory_id": 1,
+      "output_per_factory": 20.0
+    },
+    {
+      "item_id": 23,
       "category": "Флот",
-      "name": "Эсминцы",
+      "name": "Линейные корабли",
+      "required_factory_id": 3,
+      "output_per_factory": 0.5
+    },
+    {
+      "item_id": 24,
+      "category": "Флот",
+      "name": "Фрегаты",
+      "required_factory_id": 3,
+      "output_per_factory": 1.5
+    },
+    {
+      "item_id": 25,
+      "category": "Флот",
+      "name": "Галеры",
       "required_factory_id": 3,
       "output_per_factory": 4.0
     },
     {
-      "item_id": 17,
+      "item_id": 26,
       "category": "Флот",
-      "name": "Легкие крейсера",
+      "name": "Бригантины",
       "required_factory_id": 3,
-      "output_per_factory": 2.0
+      "output_per_factory": 3.0
     },
     {
-      "item_id": 18,
+      "item_id": 27,
       "category": "Флот",
-      "name": "Тяжелые крейсера",
+      "name": "Шлюпы",
       "required_factory_id": 3,
-      "output_per_factory": 1.0
+      "output_per_factory": 4.0
     },
     {
-      "item_id": 19,
+      "item_id": 28,
       "category": "Флот",
-      "name": "Линкоры",
+      "name": "Брандеры",
       "required_factory_id": 3,
-      "output_per_factory": 0.5
-    },
-    {
-      "item_id": 20,
-      "category": "Флот",
-      "name": "Авианосцы",
-      "required_factory_id": 3,
-      "output_per_factory": 0.5
-    },
-    {
-      "item_id": 21,
-      "category": "Оружие массового поражения",
-      "name": "Ядерная бомба",
-      "required_factory_id": 6,
-      "output_per_factory": 0.1,
-      "secondary_factory_id": 1,
-      "secondary_factory_count": 5
-    },
-    {
-      "category": "Огнестрел",
-      "name": "Стационарные пулеметы",
-      "required_factory_id": 1,
-      "output_per_factory": 500.0,
-      "item_id": 22
-    },
-    {
-      "category": "Огнестрел",
-      "name": "Самозарядные винтовки",
-      "required_factory_id": 1,
-      "output_per_factory": 6000.0,
-      "item_id": 23
-    },
-    {
-      "category": "Огнестрел",
-      "name": "Пистолеты",
-      "required_factory_id": 1,
-      "output_per_factory": 7500.0,
-      "item_id": 24
-    },
-    {
-      "category": "Огнестрел",
-      "name": "Противотанковые винтовки",
-      "required_factory_id": 1,
-      "output_per_factory": 250.0,
-      "item_id": 25
-    },
-    {
-      "category": "Артиллерия",
-      "name": "Гаубицы",
-      "required_factory_id": 1,
-      "output_per_factory": 75.0,
-      "item_id": 26
-    },
-    {
-      "category": "Артиллерия",
-      "name": "Береговые орудия",
-      "required_factory_id": 1,
-      "output_per_factory": 20.0,
-      "item_id": 27
-    },
-    {
-      "category": "Артиллерия",
-      "name": "Горные пушки",
-      "required_factory_id": 1,
-      "output_per_factory": 250.0,
-      "item_id": 28
-    },
-    {
-      "category": "Артиллерия",
-      "name": "Осадные орудия",
-      "required_factory_id": 1,
-      "output_per_factory": 10.0,
-      "item_id": 29
-    },
-    {
-      "category": "Артиллерия",
-      "name": "Минометы",
-      "required_factory_id": 1,
-      "output_per_factory": 300.0,
-      "item_id": 30
-    },
-    {
-      "category": "Бронетехника",
-      "name": "САУ",
-      "required_factory_id": 1,
-      "output_per_factory": 50.0,
-      "item_id": 31
-    },
-    {
-      "category": "Бронетехника",
-      "name": "ЗСУ",
-      "required_factory_id": 1,
-      "output_per_factory": 75.0,
-      "item_id": 32
-    },
-    {
-      "category": "Бронетехника",
-      "name": "Танкетки",
-      "required_factory_id": 1,
-      "output_per_factory": 300.0,
-      "item_id": 33
-    },
-    {
-      "category": "Бронетехника",
-      "name": "Бронеавтомобили",
-      "required_factory_id": 1,
-      "output_per_factory": 200.0,
-      "item_id": 34
-    },
-    {
-      "category": "Авиация",
-      "name": "Самолеты десанта",
-      "required_factory_id": 2,
-      "output_per_factory": 25.0,
-      "item_id": 35
-    },
-    {
-      "category": "Авиация",
-      "name": "Разведывательные самолеты",
-      "required_factory_id": 2,
-      "output_per_factory": 50.0,
-      "item_id": 36
-    },
-    {
-      "category": "Авиация",
-      "name": "Аэропланы",
-      "required_factory_id": 2,
-      "output_per_factory": 100.0,
-      "item_id": 37
-    },
-    {
-      "category": "Флот",
-      "name": "Десантные корабли",
-      "required_factory_id": 3,
-      "output_per_factory": 10.0,
-      "item_id": 38
-    },
-    {
-      "category": "Огнестрел",
-      "name": "Огнеметы",
-      "required_factory_id": 1,
-      "output_per_factory": 250.0,
-      "item_id": 39
-    },
-    {
-      "category": "Снаряжение",
-      "name": "Гранаты",
-      "required_factory_id": 1,
-      "output_per_factory": 10000.0,
-      "item_id": 40
-    },
-    {
-      "category": "Снаряжение",
-      "name": "Штыки",
-      "required_factory_id": 1,
-      "output_per_factory": 20000.0,
-      "item_id": 41
-    },
-    {
-      "category": "Снаряжение",
-      "name": "Каски",
-      "required_factory_id": 1,
-      "output_per_factory": 15000.0,
-      "item_id": 42
-    },
-    {
-      "category": "Бронетехника",
-      "name": "Грузовые автомобили",
-      "required_factory_id": 1,
-      "output_per_factory": 500.0,
-      "item_id": 44
+      "output_per_factory": 5.0
     }
   ]
 }

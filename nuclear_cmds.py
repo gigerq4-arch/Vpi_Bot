@@ -3,11 +3,32 @@ from aiogram.types import Message
 from aiogram.filters import Command
 from database import async_session, Country, CountryBuilding, CountryProduction
 from sqlalchemy import select
-from engine import get_config
+from engine import get_config, save_config
 
 router = Router()
 
-@router.message(Command("nuclear"))
+@router.message(Command("nuclear_toggle", "nuclear_off", "nuclear_on", ignore_case=True))
+async def cmd_nuclear_toggle(message: Message):
+    cfg = get_config()
+    is_admin = message.from_user.id == cfg.game_settings.root_admin_id
+    if not is_admin:
+        await message.answer("❌ Эта команда доступна только администратору.")
+        return
+
+    lab_building = next((b for b in cfg.buildings if b.building_id == 6), None)
+    if not lab_building:
+        await message.answer("❌ Здание Ядерной лаборатории не найдено в конфигурации.")
+        return
+
+    lab_building.enabled = not lab_building.enabled
+    save_config(cfg)
+    
+    status = "ВКЛЮЧЕНА ✅" if lab_building.enabled else "ОТКЛЮЧЕНА ❌"
+    await message.answer(f"☢️ Ядерная программа теперь **{status}**.", parse_mode="Markdown")
+
+@router.message(Command("nuclear", "nuke", ignore_case=True))
+@router.message(Command("nuke", ignore_case=True))
+@router.message(Command("nuclear", ignore_case=True))
 async def cmd_nuclear(message: Message):
     cfg = get_config()
     lab_building = next((b for b in cfg.buildings if b.building_id == 6), None)
@@ -156,3 +177,31 @@ async def cmd_lab_remove(message: Message):
         setattr(country, lab_col, current_assigned - count)
         await session.commit()
         await message.answer(f"✅ Снято {count} лабораторий с этапа {phase}.")
+
+@router.message(Command("nuclear_cancel", "stop_nuclear"))
+async def cmd_nuclear_cancel(message: Message):
+    cfg = get_config()
+    lab_building = next((b for b in cfg.buildings if b.building_id == 6), None)
+    if not lab_building or not lab_building.enabled:
+        await message.answer("❌ Ядерная программа в данный момент отключена.")
+        return
+
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
+        if not country: 
+            return
+            
+        country.nuclear_phase_1 = 0.0
+        country.nuclear_phase_2 = 0.0
+        country.nuclear_phase_3 = 0.0
+        country.nuclear_phase_4 = 0.0
+        country.nuclear_phase_5 = 0.0
+        
+        country.lab_assigned_phase_1 = 0
+        country.lab_assigned_phase_2 = 0
+        country.lab_assigned_phase_3 = 0
+        country.lab_assigned_phase_4 = 0
+        country.lab_assigned_phase_5 = 0
+        
+        await session.commit()
+        await message.answer("🛑 Вы полностью **отменили** и сбросили свою ядерную программу. Все назначенные лаборатории освобождены, прогресс потерян.", parse_mode="Markdown")

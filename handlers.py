@@ -165,7 +165,6 @@ async def cmd_help(message: Message):
         "• /spy — Шпионаж и диверсии\n"
         "• /trade — Торговля с другими странами\n"
         
-        "• /nuclear, /nuke — Ядерная программа\n"
         "• /lab_assign, /lab_remove — Назначить/Снять военные заводы и лаборатории\n"
     )
     
@@ -186,7 +185,8 @@ async def cmd_help(message: Message):
         
     await message.answer(text)
 
-@router.message(Command("rate", "rates"))
+@router.message(Command("rate", ignore_case=True))
+@router.message(Command("rates", ignore_case=True))
 async def cmd_rate(message: Message):
     cfg = get_config()
     
@@ -217,7 +217,9 @@ async def cmd_rate(message: Message):
             
     await message.answer(res, parse_mode="HTML")
 
-@router.message(Command("profile", "eco", "stats"))
+@router.message(Command("profile", ignore_case=True))
+@router.message(Command("eco", ignore_case=True))
+@router.message(Command("stats", ignore_case=True))
 async def cmd_profile(message: Message):
     async with async_session() as session:
         country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
@@ -294,12 +296,14 @@ async def cmd_profile(message: Message):
         elif stab_tax_mult == 0.8: stab_eff = " (-20% к налогам и фабрикам)"
         elif stab_tax_mult == 0.5: stab_eff = " (-50% к налогам и фабрикам)"
             
+        war_eff = " (-10% к содержанию, +10% к пр-ву)" if country.war_support >= 80 else ""
+        
         text += (
             f"📈 Инфляция: {country.inflation:.1f}%\n"
             f"⚖️ Эффект стабильности:{stab_eff}\n"
             f"⚖️ Стабильность: {country.stability:.2f}%\n"
-            f"🪖 Поддержка войны: {country.war_support:.1f}%" + (" (-10% к содержанию, +10% к пр-ву)\n" if country.war_support >= 80 else "\n") + (
-            f"🪖 Регулярная армия: {country.military:,} чел., расход: {military_upkeep:.2f} B$\n")
+            f"🪖 Поддержка войны: {country.war_support:.1f}%{war_eff}\n"
+            f"🪖 Регулярная армия: {country.military:,} чел., расход: {military_upkeep:.2f} B$\n"
             f"💰 Чистый доход: {net_income:.2f} B$\n\n"
             f"🕵️ Очки агентуры (ОА): {country.intel_points:.1f} (Агентур: {agencies})\n"
             f"🛡 Контрразведка: {country.counter_intel_points:.1f} ОА"
@@ -315,31 +319,31 @@ async def start_registration(callback: CallbackQuery, state: FSMContext):
             return
             
     await state.set_state(Registration.name)
-    await callback.message.edit_text("◆ Введите название вашей страны:")
+    await callback.message.edit_text("◆ Введите название вашей страны:\n<i>(Например: Великая Римская Империя, Республика Марс)</i>", parse_mode="HTML")
 
 @router.message(Registration.name)
 async def process_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
     await state.set_state(Registration.ideology)
-    await message.answer("◆ Введите идеологию:")
+    await message.answer("◆ Введите идеологию:\n<i>(Например: Демократия, Коммунизм, Монархия, Диктатура)</i>", parse_mode="HTML")
 
 @router.message(Registration.ideology)
 async def process_ideology(message: Message, state: FSMContext):
     await state.update_data(ideology=message.text)
     await state.set_state(Registration.ruler)
-    await message.answer("◆ Введите имя правителя:")
+    await message.answer("◆ Введите имя правителя:\n<i>(Например: Император Юлий, Президент Смит)</i>", parse_mode="HTML")
 
 @router.message(Registration.ruler)
 async def process_ruler(message: Message, state: FSMContext):
     await state.update_data(ruler=message.text)
     await state.set_state(Registration.party)
-    await message.answer("◆ Введите название правящей партии:")
+    await message.answer("◆ Введите название правящей партии:\n<i>(Например: Партия Свободы, Единая Земля, Коммунистическая партия)</i>", parse_mode="HTML")
 
 @router.message(Registration.party)
 async def process_party(message: Message, state: FSMContext):
     await state.update_data(party=message.text)
     await state.set_state(Registration.religion)
-    await message.answer("◆ Введите государственную религию:")
+    await message.answer("◆ Введите государственную религию:\n<i>(Например: Христианство, Ислам, Атеизм, Культ Солнца)</i>", parse_mode="HTML")
 
 @router.message(Registration.religion)
 async def process_religion(message: Message, state: FSMContext):
@@ -437,6 +441,7 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
     
     cfg = get_config()
     
+    is_doc = message.document is not None
     if user_id == cfg.game_settings.root_admin_id:
         # Авто-апрув для админов (или если админов нет)
         country = Country(
@@ -445,7 +450,8 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
             stability=data['stability'], war_support=data['war_support'], area=data['area'],
             flag_photo_id=data['flag'], map_photo_id=photo_id,
             treasury=10.0, taxpayers=1000000, military=1000, martial_law=False,
-            built_this_turn=0, inflation=0.0, intel_points=0.0, counter_intel_points=0.0
+            built_this_turn=0, inflation=0.0, intel_points=0.0, counter_intel_points=0.0,
+            is_approved=True
         )
         async with async_session() as session:
             session.add(country)
@@ -455,7 +461,7 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
         
         # Announce in public chat
         public_chat = cfg.game_settings.public_chat_id
-        reg_thread = getattr(cfg.game_settings, 'registration_thread_id', None)
+        pub_thread = getattr(cfg.game_settings, 'registration_thread_id', None)
         if public_chat:
             short_anketa = (
                 f"🎉 <b>Новая страна на политической арене!</b>\n\n"
@@ -467,11 +473,28 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
             try:
                 await bot.send_photo(
                     chat_id=public_chat,
-                    message_thread_id=reg_thread,
+                    message_thread_id=pub_thread,
                     photo=data['flag'],
                     caption=short_anketa,
                     parse_mode="HTML"
                 )
+                # Отправляем и карту тоже!
+                if is_doc:
+                    await bot.send_document(
+                        chat_id=public_chat,
+                        message_thread_id=pub_thread,
+                        document=photo_id,
+                        caption="🗺 <b>Карта страны</b>",
+                        parse_mode="HTML"
+                    )
+                else:
+                    await bot.send_photo(
+                        chat_id=public_chat,
+                        message_thread_id=pub_thread,
+                        photo=photo_id,
+                        caption="🗺 <b>Карта страны</b>",
+                        parse_mode="HTML"
+                    )
             except Exception as e:
                 import logging
                 logging.error(f"Failed to send public reg notification: {e}")
@@ -483,7 +506,8 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
             stability=data['stability'], war_support=data['war_support'], area=data['area'],
             flag_photo_id=data['flag'], map_photo_id=photo_id,
             treasury=10.0, taxpayers=1000000, military=1000, martial_law=False,
-            built_this_turn=0, inflation=0.0, intel_points=0.0, counter_intel_points=0.0
+            built_this_turn=0, inflation=0.0, intel_points=0.0, counter_intel_points=0.0,
+            is_approved=False
         )
         async with async_session() as session:
             session.add(country)
@@ -492,12 +516,18 @@ async def process_map(message: Message, state: FSMContext, bot: Bot):
         try:
             from keyboards import get_moderation_keyboard
             await bot.send_photo(
-                chat_id=cfg.game_settings.admin_chat_id, photo=data['flag'], caption=f"Флаг страны: {data['name']}"
+                chat_id=cfg.game_settings.root_admin_id, photo=data['flag'], caption=f"Флаг страны: {data['name']}"
             )
-            await bot.send_photo(
-                chat_id=cfg.game_settings.admin_chat_id, photo=photo_id, caption=anketa,
-                reply_markup=get_moderation_keyboard(user_id)
-            )
+            if is_doc:
+                await bot.send_document(
+                    chat_id=cfg.game_settings.root_admin_id, document=photo_id, caption=anketa,
+                    reply_markup=get_moderation_keyboard(user_id)
+                )
+            else:
+                await bot.send_photo(
+                    chat_id=cfg.game_settings.root_admin_id, photo=photo_id, caption=anketa,
+                    reply_markup=get_moderation_keyboard(user_id)
+                )
         except Exception as e:
             import logging
             logging.error(f"Failed to send to admin chat: {e}")
@@ -515,15 +545,18 @@ async def approve_country(callback: CallbackQuery, bot: Bot):
     except Exception:
         pass
         
-    # Public announcement
-    cfg = get_config()
-    public_chat = cfg.game_settings.public_chat_id
-    reg_thread = getattr(cfg.game_settings, 'registration_thread_id', None)
-    
-    if public_chat:
-        async with async_session() as session:
-            country = await session.scalar(select(Country).where(Country.owner_id == user_id))
-            if country:
+    async with async_session() as session:
+        country = await session.scalar(select(Country).where(Country.owner_id == user_id))
+        if country:
+            country.is_approved = True
+            await session.commit()
+            
+            # Public announcement
+            cfg = get_config()
+            public_chat = cfg.game_settings.public_chat_id
+            pub_thread = getattr(cfg.game_settings, 'registration_thread_id', None)
+            
+            if public_chat:
                 short_anketa = (
                     f"🎉 <b>Новая страна на политической арене!</b>\n\n"
                     f"🏳️ <b>Название:</b> {country.name}\n"
@@ -534,11 +567,27 @@ async def approve_country(callback: CallbackQuery, bot: Bot):
                 try:
                     await bot.send_photo(
                         chat_id=public_chat,
-                        message_thread_id=reg_thread,
+                        message_thread_id=pub_thread,
                         photo=country.flag_photo_id,
                         caption=short_anketa,
                         parse_mode="HTML"
                     )
+                    try:
+                        await bot.send_photo(
+                            chat_id=public_chat,
+                            message_thread_id=pub_thread,
+                            photo=country.map_photo_id,
+                            caption="🗺 <b>Карта страны</b>",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        await bot.send_document(
+                            chat_id=public_chat,
+                            message_thread_id=pub_thread,
+                            document=country.map_photo_id,
+                            caption="🗺 <b>Карта страны</b>",
+                            parse_mode="HTML"
+                        )
                 except Exception as e:
                     import logging
                     logging.error(f"Failed to send public reg notification: {e}")
@@ -600,7 +649,8 @@ async def toggle_martial_law(callback: CallbackQuery):
         )
         await callback.answer(f"Военное положение: {'ВКЛ' if country.martial_law else 'ВЫКЛ'}")
 
-@router.message(Command("production", "prod"))
+@router.message(Command("production", ignore_case=True))
+@router.message(Command("prod", ignore_case=True))
 async def cmd_production(message: Message):
     async with async_session() as session:
         country = await session.scalar(select(Country).where(Country.owner_id == message.from_user.id))
@@ -1525,7 +1575,7 @@ async def process_expand_map(message: Message, state: FSMContext, bot: Bot):
         )
         
         try:
-            await bot.send_photo(chat_id=cfg.game_settings.admin_chat_id, photo=photo_id, caption=anketa, parse_mode="Markdown")
+            await bot.send_photo(chat_id=cfg.game_settings.root_admin_id, photo=photo_id, caption=anketa, parse_mode="Markdown")
         except Exception:
             pass
             
@@ -1812,7 +1862,6 @@ async def cmd_guide(message: Message):
         "🕵️ Шпионаж (/spy) и Торговля (/trade)\n"
         "• Контрразведка: Агентурные сети пассивно генерируют Очки Разведки (ОА), которые автоматически защищают страну от диверсий врага.\n"
         "• Через торговлю можно передавать технику и деньги союзникам.\n\n"
-        "☢️ Ядерная программа (/nuclear)\n"
         "• Для производства бомб нужна 1 Лаборатория и 5 Военных заводов.\n"
         "• Сначала исследуйте все этапы проекта, назначив заводы (/lab_assign), и только после этого можно производить само оружие.\n\n"
         "⚠️ Каждый ход администратор начисляет налоги и завершает строительство."
@@ -1904,7 +1953,8 @@ async def process_reform_desc(message: Message, state: FSMContext, bot: Bot):
 
     await state.clear()
 
-@router.message(Command("destroy", "demolish"))
+@router.message(Command("destroy", ignore_case=True))
+@router.message(Command("demolish", ignore_case=True))
 async def cmd_destroy(message: Message):
     # Синтаксис: /destroy [building_id] [count]
     args = message.text.split()
